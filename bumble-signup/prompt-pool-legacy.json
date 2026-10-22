@@ -1,0 +1,402 @@
+[
+  {
+    "question": "Give me travel tips for",
+    "answer": "Kyoto: quiet cafes, riverside walks, and little bookshops."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Lisbon: the best pastries and a sunset spot worth the walk."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Vancouver: mountain views, good coffee, and rainy-day plans."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Mexico City: neighborhood markets and your favorite taco place."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Copenhagen: bakeries, bike routes, and cozy corners."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Edinburgh: winding streets, old bookstores, and a good breakfast."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Barcelona: beach walks and places with excellent small plates."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "New Zealand: scenic hikes that leave time for a picnic."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Portland: coffee shops, record stores, and an easy day trip."
+  },
+  {
+    "question": "Give me travel tips for",
+    "answer": "Your hometown: the place you always take visiting friends."
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Find a hidden beach or a tiny mountain cabin? I need the full itinerary."
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Spend Saturday at a farmers market or getting lost in a museum?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Take a spontaneous road trip or plan the perfect weekend away?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Learn to make fresh pasta or finally master pottery?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Have breakfast for dinner or dessert before lunch?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Watch a sunrise by the water or a sunset from a rooftop?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Browse a bookstore for hours or see a band you have never heard of?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Win trivia night or absolutely steal the show at karaoke?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Cook together with no recipe or try the smallest restaurant in town?"
+  },
+  {
+    "question": "Would you rather",
+    "answer": "Explore a new city on foot or cycle all the way to a picnic spot?"
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "The kind where the unplanned detour becomes the favorite part."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "A rainy afternoon that turns into a very long cafe conversation."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "Missing one turn and finding a beautiful little waterfront."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "A tiny bakery that deserves a whole return trip."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "Following a local recommendation instead of the itinerary."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "A walk that was meant to last ten minutes and somehow lasted three hours."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "The train ride with a view that makes everyone put their phones down."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "A picnic assembled entirely from a neighborhood market."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "Finding live music while looking for somewhere to eat."
+  },
+  {
+    "question": "Best travel story:",
+    "answer": "A sunset that makes the steep walk back feel completely worth it."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "My ideal bookstore-and-coffee afternoon."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "The dinner I would cook for a very relaxed date night."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "Why a scenic walk counts as a perfectly good plan."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "My very specific requirements for a great picnic."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "The songs that always make it onto my road-trip playlist."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "The little things that make a new city feel welcoming."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "Which dessert deserves to be ordered before the main course."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "My ambitious list of hobbies I would like to try."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "How to turn an ordinary Sunday into a tiny adventure."
+  },
+  {
+    "question": "Ask me about",
+    "answer": "My dream weekend involving a cabin, a lake, and no alarms."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Notice the scenery and ask someone for directions."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Treat it as permission to finish the conversation properly."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Rediscover the very useful skill of remembering a landmark."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Find a cafe, order something good, and slow down."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Pretend the paper map was part of the aesthetic all along."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Pay a lot more attention to the person sitting across from me."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Take a walk without deciding what to photograph."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Remember that a sunset still happened even if nobody posted it."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Try to make my next plan without checking a review first."
+  },
+  {
+    "question": "When my phone dies I",
+    "answer": "Accept that the playlist is now whatever we can sing from memory."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A coffee shop with big windows and a very good pastry."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A farmers market comparing flowers I do not need."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A bookstore telling myself I am only browsing."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A park with a picnic blanket and an unnecessarily full snack bag."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A museum reading every little description."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A walking trail with a view worth stopping for."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A small music venue discovering a new favorite song."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A neighborhood bakery choosing between the same two things."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A craft workshop learning to make something slightly lopsided."
+  },
+  {
+    "question": "You'll probably run into me at",
+    "answer": "A waterfront path taking the scenic route home."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Sitting by an open window with coffee and a good playlist."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "A slow Sunday morning with no reservations and no alarms."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Reading a few pages, then getting distracted by the view."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Watching the water with enough snacks to make it an event."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "A blanket, a familiar movie, and absolutely no multitasking."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "A long walk with no destination and very good company."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Listening to an entire album instead of skipping to the next song."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Finding a sunny patch in a park and staying for a while."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Making a slightly elaborate breakfast just because there is time."
+  },
+  {
+    "question": "My favorite way to do nothing is",
+    "answer": "Sitting outside after dinner until the conversation runs out."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Coffee tastes better when someone else makes it for you."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Socks are quietly relocating to a parallel laundry universe."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Dogs know exactly how photogenic they are."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Every bookstore has a secret way of slowing down time."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "The best bakery is always one street past where you meant to stop."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Plants grow faster when you compliment them."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "A good playlist can shorten a road trip by at least an hour."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Cats invented working from home for their own benefit."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "The weekend loses an hour whenever you make too many plans."
+  },
+  {
+    "question": "A conspiracy theory I believe in",
+    "answer": "Fries stolen from your date taste better than your own."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Assembling a very convincing picnic from one grocery-store stop."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Finding the cozy corner in almost any coffee shop."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Picking a film that somehow suits everyone in the room."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Making a playlist for an extremely specific mood."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Packing a weekend bag without forgetting the snacks."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Guessing which pastry someone will order."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Turning a short walk into a surprisingly good day out."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Coming up with a backup plan that is more fun than the original."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Finding a reason to celebrate an ordinary Tuesday."
+  },
+  {
+    "question": "My most random skill is",
+    "answer": "Remembering a good restaurant by the color of its front door."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Saying we should take the scenic route without checking how scenic."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Having three books on the go and starting a fourth."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Ordering something new and immediately wanting to try your food."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Treating a quick stop at the market as a full afternoon activity."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Calling a very ambitious baking project a relaxing evening."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Making a playlist before deciding where the road trip is going."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Bringing enough snacks for people who have not even been invited yet."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Getting excited about a hobby before buying the beginner supplies."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Suggesting just one more walk when the sunset looks promising."
+  },
+  {
+    "question": "My most chaotic trait is",
+    "answer": "Saving a restaurant recommendation while already sitting in a restaurant."
+  }
+]

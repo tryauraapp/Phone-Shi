@@ -1,0 +1,782 @@
+[
+  {
+    "category": "Date night",
+    "question": "First round on me if",
+    "answer": "You pick the music and let me steal one fry."
+  },
+  {
+    "category": "Date night",
+    "question": "First round on me if",
+    "answer": "You can make me laugh before the menus arrive."
+  },
+  {
+    "category": "Date night",
+    "question": "First round on me if",
+    "answer": "You know a cozy spot with a terrible trivia night."
+  },
+  {
+    "category": "Date night",
+    "question": "Dinner at mine means",
+    "answer": "Fresh pasta, a good playlist, and dessert before dishes."
+  },
+  {
+    "category": "Date night",
+    "question": "Dinner at mine means",
+    "answer": "Something slightly ambitious and a very reliable backup pizza."
+  },
+  {
+    "category": "Date night",
+    "question": "Dinner at mine means",
+    "answer": "You chop, I stir, and we both pretend to follow the recipe."
+  },
+  {
+    "category": "Date night",
+    "question": "Together, we could",
+    "answer": "Try every bakery in the neighborhood and keep very serious rankings."
+  },
+  {
+    "category": "Date night",
+    "question": "Together, we could",
+    "answer": "Turn a quick coffee into a whole afternoon of wandering."
+  },
+  {
+    "category": "Date night",
+    "question": "Together, we could",
+    "answer": "Learn a new recipe and celebrate even if it looks nothing like the photo."
+  },
+  {
+    "category": "Date night",
+    "question": "Win me over by",
+    "answer": "Being kind to people when you think nobody is watching."
+  },
+  {
+    "category": "Date night",
+    "question": "Win me over by",
+    "answer": "Remembering a little detail from our last conversation."
+  },
+  {
+    "category": "Date night",
+    "question": "Win me over by",
+    "answer": "Picking a plan and showing up excited about it."
+  },
+  {
+    "category": "Date night",
+    "question": "The spot I'd take you to first",
+    "answer": "A tiny cafe with good pastries and room for a long conversation."
+  },
+  {
+    "category": "Date night",
+    "question": "The spot I'd take you to first",
+    "answer": "A riverside path with a coffee stop at the end."
+  },
+  {
+    "category": "Date night",
+    "question": "The spot I'd take you to first",
+    "answer": "A bookstore where we pick a book for each other."
+  },
+  {
+    "category": "Date night",
+    "question": "Take me somewhere that",
+    "answer": "Has a good view and absolutely no dress code."
+  },
+  {
+    "category": "Date night",
+    "question": "Take me somewhere that",
+    "answer": "Makes us put our phones away without even discussing it."
+  },
+  {
+    "category": "Date night",
+    "question": "Take me somewhere that",
+    "answer": "You love enough to tell me the story behind it."
+  },
+  {
+    "category": "Date night",
+    "question": "The best nights are when",
+    "answer": "Dinner runs late because the conversation keeps getting better."
+  },
+  {
+    "category": "Date night",
+    "question": "The best nights are when",
+    "answer": "The plan changes and nobody minds."
+  },
+  {
+    "category": "Date night",
+    "question": "The best nights are when",
+    "answer": "We find live music on the way home and stay for one more song."
+  },
+  {
+    "category": "Date night",
+    "question": "My ideal date involves",
+    "answer": "Coffee, a scenic walk, and finding out what makes you laugh."
+  },
+  {
+    "category": "Date night",
+    "question": "My ideal date involves",
+    "answer": "Cooking together with a playlist we both keep adding to."
+  },
+  {
+    "category": "Date night",
+    "question": "My ideal date involves",
+    "answer": "A market, a picnic, and enough time to take the long way home."
+  },
+  {
+    "category": "Date night",
+    "question": "Instead of drinks, let’s",
+    "answer": "Pick a pastry each and share the results."
+  },
+  {
+    "category": "Date night",
+    "question": "Instead of drinks, let’s",
+    "answer": "Go to a pottery class and make two questionable bowls."
+  },
+  {
+    "category": "Date night",
+    "question": "Instead of drinks, let’s",
+    "answer": "Find a walking trail and bring excellent snacks."
+  },
+  {
+    "category": "Looking for",
+    "question": "I instantly trust someone who",
+    "answer": "Is nice to the waiter even when the kitchen is busy."
+  },
+  {
+    "category": "Looking for",
+    "question": "I instantly trust someone who",
+    "answer": "Can say they were wrong without making it a whole thing."
+  },
+  {
+    "category": "Looking for",
+    "question": "I instantly trust someone who",
+    "answer": "Returns their shopping cart and remembers to say thank you."
+  },
+  {
+    "category": "Looking for",
+    "question": "My ultimate green flag is",
+    "answer": "Clear communication with a sense of humor."
+  },
+  {
+    "category": "Looking for",
+    "question": "My ultimate green flag is",
+    "answer": "Kindness that stays the same on a stressful day."
+  },
+  {
+    "category": "Looking for",
+    "question": "My ultimate green flag is",
+    "answer": "Making plans and following through."
+  },
+  {
+    "category": "Looking for",
+    "question": "We'd probably get along if",
+    "answer": "You enjoy both a spontaneous day out and a very quiet Sunday."
+  },
+  {
+    "category": "Looking for",
+    "question": "We'd probably get along if",
+    "answer": "You think sharing food is half the fun of going out."
+  },
+  {
+    "category": "Looking for",
+    "question": "We'd probably get along if",
+    "answer": "You can laugh at a plan going slightly wrong."
+  },
+  {
+    "category": "Looking for",
+    "question": "I'll know we're a good match if",
+    "answer": "A comfortable silence feels as good as the conversation."
+  },
+  {
+    "category": "Looking for",
+    "question": "I'll know we're a good match if",
+    "answer": "We can disagree kindly and still choose dinner together."
+  },
+  {
+    "category": "Looking for",
+    "question": "I'll know we're a good match if",
+    "answer": "We both leave the first date wanting one more walk."
+  },
+  {
+    "category": "Looking for",
+    "question": "Send me a like if you",
+    "answer": "Have a favorite local spot you want an excuse to visit."
+  },
+  {
+    "category": "Looking for",
+    "question": "Send me a like if you",
+    "answer": "Are up for good conversation and low-pressure adventures."
+  },
+  {
+    "category": "Looking for",
+    "question": "Send me a like if you",
+    "answer": "Think a picnic counts as a proper plan."
+  },
+  {
+    "category": "Looking for",
+    "question": "Hopefully you’re also really into",
+    "answer": "Slow mornings, good coffee, and making time for friends."
+  },
+  {
+    "category": "Looking for",
+    "question": "Hopefully you’re also really into",
+    "answer": "Trying new food and sharing the best thing on the table."
+  },
+  {
+    "category": "Looking for",
+    "question": "Hopefully you’re also really into",
+    "answer": "Finding little adventures close to home."
+  },
+  {
+    "category": "Looking for",
+    "question": "Teach me something about",
+    "answer": "The hobby you could talk about for an entire train ride."
+  },
+  {
+    "category": "Looking for",
+    "question": "Teach me something about",
+    "answer": "How you make your favorite meal."
+  },
+  {
+    "category": "Looking for",
+    "question": "Teach me something about",
+    "answer": "Your hometown, including the place the guidebooks miss."
+  },
+  {
+    "category": "Looking for",
+    "question": "My non-negotiable in a relationship is",
+    "answer": "Being honest even when the conversation feels awkward."
+  },
+  {
+    "category": "Looking for",
+    "question": "My non-negotiable in a relationship is",
+    "answer": "Mutual respect and enough room to be ourselves."
+  },
+  {
+    "category": "Looking for",
+    "question": "My non-negotiable in a relationship is",
+    "answer": "Following through on the small things, too."
+  },
+  {
+    "category": "About me",
+    "question": "My simple pleasures are",
+    "answer": "Fresh sheets, a good pastry, and a walk with no deadline."
+  },
+  {
+    "category": "About me",
+    "question": "My simple pleasures are",
+    "answer": "An open window, coffee, and the first song on a great album."
+  },
+  {
+    "category": "About me",
+    "question": "My simple pleasures are",
+    "answer": "Finding a sunny seat and having nowhere urgent to be."
+  },
+  {
+    "category": "About me",
+    "question": "My personal hell is",
+    "answer": "A lovely dinner where everyone is staring at their phone."
+  },
+  {
+    "category": "About me",
+    "question": "My personal hell is",
+    "answer": "A group chat trying to pick a restaurant for three weeks."
+  },
+  {
+    "category": "About me",
+    "question": "My personal hell is",
+    "answer": "A beautiful walking route with nowhere to buy a snack."
+  },
+  {
+    "category": "About me",
+    "question": "My friends describe me as",
+    "answer": "The one who brings snacks and asks how everyone is getting home."
+  },
+  {
+    "category": "About me",
+    "question": "My friends describe me as",
+    "answer": "Calm in a crisis, dramatic about a disappointing pastry."
+  },
+  {
+    "category": "About me",
+    "question": "My friends describe me as",
+    "answer": "A good listener with an unnecessarily detailed weekend plan."
+  },
+  {
+    "category": "About me",
+    "question": "My texting style is best described as",
+    "answer": "Thoughtful replies, occasional typos, and a very relevant meme."
+  },
+  {
+    "category": "About me",
+    "question": "My texting style is best described as",
+    "answer": "A few proper messages rather than a hundred tiny notifications."
+  },
+  {
+    "category": "About me",
+    "question": "My texting style is best described as",
+    "answer": "Enthusiastic about making actual plans."
+  },
+  {
+    "category": "About me",
+    "question": "I’m happiest when",
+    "answer": "A slow morning turns into an unexpected adventure."
+  },
+  {
+    "category": "About me",
+    "question": "I’m happiest when",
+    "answer": "Everyone I love is around the same dinner table."
+  },
+  {
+    "category": "About me",
+    "question": "I’m happiest when",
+    "answer": "I finish a long walk with good company and better snacks."
+  },
+  {
+    "category": "About me",
+    "question": "After work you can find me",
+    "answer": "Taking a walk to decide what to cook for dinner."
+  },
+  {
+    "category": "About me",
+    "question": "After work you can find me",
+    "answer": "Trying a new recipe with a familiar playlist."
+  },
+  {
+    "category": "About me",
+    "question": "After work you can find me",
+    "answer": "Meeting a friend for a quick coffee that runs a little long."
+  },
+  {
+    "category": "About me",
+    "question": "Most people don't know I",
+    "answer": "Keep a list of tiny places I want to visit on a free afternoon."
+  },
+  {
+    "category": "About me",
+    "question": "Most people don't know I",
+    "answer": "Choose a road-trip playlist before choosing the destination."
+  },
+  {
+    "category": "About me",
+    "question": "Most people don't know I",
+    "answer": "Can turn almost any grocery stop into a picnic."
+  },
+  {
+    "category": "About me",
+    "question": "The quickest way to my heart is",
+    "answer": "Genuine curiosity and remembering how I take my coffee."
+  },
+  {
+    "category": "About me",
+    "question": "The quickest way to my heart is",
+    "answer": "Making me laugh when a perfectly good plan falls apart."
+  },
+  {
+    "category": "About me",
+    "question": "The quickest way to my heart is",
+    "answer": "A thoughtful little gesture on an otherwise ordinary day."
+  },
+  {
+    "category": "About me",
+    "question": "I’m a real nerd about",
+    "answer": "Finding the best walking route between two good bakeries."
+  },
+  {
+    "category": "About me",
+    "question": "I’m a real nerd about",
+    "answer": "Playlists that fit a very specific time of day."
+  },
+  {
+    "category": "About me",
+    "question": "I’m a real nerd about",
+    "answer": "Bookshops, coffee spots, and why a good chair matters."
+  },
+  {
+    "category": "Real talk",
+    "question": "Settle a debate:",
+    "answer": "Does a walk count as a date if we stop for three different snacks?"
+  },
+  {
+    "category": "Real talk",
+    "question": "Settle a debate:",
+    "answer": "Is breakfast for dinner the best dinner?"
+  },
+  {
+    "category": "Real talk",
+    "question": "Settle a debate:",
+    "answer": "Should we read the book before watching the film?"
+  },
+  {
+    "category": "Real talk",
+    "question": "I refuse to apologize for",
+    "answer": "Stopping to say hello to a friendly dog."
+  },
+  {
+    "category": "Real talk",
+    "question": "I refuse to apologize for",
+    "answer": "Taking dessert seriously."
+  },
+  {
+    "category": "Real talk",
+    "question": "I refuse to apologize for",
+    "answer": "Choosing an early night before a really good day out."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm oddly competitive about",
+    "answer": "Board games I claimed I was only playing for fun."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm oddly competitive about",
+    "answer": "Finding the best bakery on a weekend away."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm oddly competitive about",
+    "answer": "Packing the most useful picnic bag."
+  },
+  {
+    "category": "Real talk",
+    "question": "Convince me that",
+    "answer": "Your favorite comfort film deserves a place on my weekend list."
+  },
+  {
+    "category": "Real talk",
+    "question": "Convince me that",
+    "answer": "A rainy day is a perfectly good reason to go outside."
+  },
+  {
+    "category": "Real talk",
+    "question": "Convince me that",
+    "answer": "Your hometown has the best version of at least one food."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm ready for someone who",
+    "answer": "Communicates clearly and still knows how to be silly."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm ready for someone who",
+    "answer": "Wants to build something steady without rushing the fun part."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm ready for someone who",
+    "answer": "Makes ordinary days feel like something we chose together."
+  },
+  {
+    "category": "Real talk",
+    "question": "One thing I'll never do again",
+    "answer": "Book a trip with a sunrise departure and call it relaxing."
+  },
+  {
+    "category": "Real talk",
+    "question": "One thing I'll never do again",
+    "answer": "Try a complicated new recipe when the guests are already arriving."
+  },
+  {
+    "category": "Real talk",
+    "question": "One thing I'll never do again",
+    "answer": "Wear brand-new shoes on a very ambitious walking day."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm working towards",
+    "answer": "Making more room for the people and plans that matter."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm working towards",
+    "answer": "Being a little braver about trying things I am bad at."
+  },
+  {
+    "category": "Real talk",
+    "question": "I'm working towards",
+    "answer": "A better balance between having plans and leaving room for surprises."
+  },
+  {
+    "category": "Real talk",
+    "question": "Fair warning:",
+    "answer": "I will want to try one bite of whatever you ordered."
+  },
+  {
+    "category": "Real talk",
+    "question": "Fair warning:",
+    "answer": "A quick bookstore stop may need a generous definition of quick."
+  },
+  {
+    "category": "Real talk",
+    "question": "Fair warning:",
+    "answer": "If you mention a good bakery, I will remember."
+  },
+  {
+    "category": "Real talk",
+    "question": "Give me your hot take on",
+    "answer": "The best snack for a road trip. There are consequences."
+  },
+  {
+    "category": "Real talk",
+    "question": "Give me your hot take on",
+    "answer": "Whether every great weekend needs at least one completely unplanned hour."
+  },
+  {
+    "category": "Real talk",
+    "question": "Give me your hot take on",
+    "answer": "The one film you would happily watch again tonight."
+  },
+  {
+    "category": "Real talk",
+    "question": "Unpopular opinion: the world needs more",
+    "answer": "Places to sit outside without buying anything."
+  },
+  {
+    "category": "Real talk",
+    "question": "Unpopular opinion: the world needs more",
+    "answer": "Dinner parties where nobody worries about matching plates."
+  },
+  {
+    "category": "Real talk",
+    "question": "Unpopular opinion: the world needs more",
+    "answer": "People admitting they do not know, then getting curious."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "You'll probably run into me at",
+    "answer": "A coffee shop with big windows and a very good pastry."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "You'll probably run into me at",
+    "answer": "A farmers market comparing flowers I do not need."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "You'll probably run into me at",
+    "answer": "A bookstore telling myself I am only browsing."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "A conspiracy theory I believe in",
+    "answer": "Coffee tastes better when someone else makes it for you."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "A conspiracy theory I believe in",
+    "answer": "Socks are quietly relocating to a parallel laundry universe."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "A conspiracy theory I believe in",
+    "answer": "Dogs know exactly how photogenic they are."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "I’ll never forget the time I",
+    "answer": "Took the wrong turn on a walk and found my favorite little cafe."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "I’ll never forget the time I",
+    "answer": "Cooked for friends and discovered the backup plan was the better dinner."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "I’ll never forget the time I",
+    "answer": "Went out for one song and stayed for the whole set."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Give me travel tips for",
+    "answer": "Kyoto: quiet cafes, riverside walks, and little bookshops."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Give me travel tips for",
+    "answer": "Lisbon: the best pastries and a sunset spot worth the walk."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Give me travel tips for",
+    "answer": "Vancouver: mountain views, good coffee, and rainy-day plans."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My most chaotic trait is",
+    "answer": "Saying we should take the scenic route without checking how scenic."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My most chaotic trait is",
+    "answer": "Having three books on the go and starting a fourth."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My most chaotic trait is",
+    "answer": "Ordering something new and immediately wanting to try your food."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Would you rather",
+    "answer": "Find a hidden beach or a tiny mountain cabin? I need the full itinerary."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Would you rather",
+    "answer": "Spend Saturday at a farmers market or getting lost in a museum?"
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Would you rather",
+    "answer": "Take a spontaneous road trip or plan the perfect weekend away?"
+  },
+  {
+    "category": "Bit of fun",
+    "question": "I can't stop thinking about",
+    "answer": "Where to go for the next long weekend."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "I can't stop thinking about",
+    "answer": "A really good bowl of noodles and the walk home after."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "I can't stop thinking about",
+    "answer": "Whether we could make that recipe better together."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Best travel story:",
+    "answer": "The kind where the unplanned detour becomes the favorite part."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Best travel story:",
+    "answer": "A rainy afternoon that turns into a very long cafe conversation."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Best travel story:",
+    "answer": "Missing one turn and finding a beautiful little waterfront."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My favorite way to do nothing is",
+    "answer": "Sitting by an open window with coffee and a good playlist."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My favorite way to do nothing is",
+    "answer": "A slow Sunday morning with no reservations and no alarms."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My favorite way to do nothing is",
+    "answer": "Reading a few pages, then getting distracted by the view."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Ask me about",
+    "answer": "My ideal bookstore-and-coffee afternoon."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Ask me about",
+    "answer": "The dinner I would cook for a very relaxed date night."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "Ask me about",
+    "answer": "Why a scenic walk counts as a perfectly good plan."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My most random skill is",
+    "answer": "Assembling a very convincing picnic from one grocery-store stop."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My most random skill is",
+    "answer": "Finding the cozy corner in almost any coffee shop."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "My most random skill is",
+    "answer": "Picking a film that somehow suits everyone in the room."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "When my phone dies I",
+    "answer": "Notice the scenery and ask someone for directions."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "When my phone dies I",
+    "answer": "Treat it as permission to finish the conversation properly."
+  },
+  {
+    "category": "Bit of fun",
+    "question": "When my phone dies I",
+    "answer": "Rediscover the very useful skill of remembering a landmark."
+  },
+  {
+    "category": "Self-care",
+    "question": "Nothing fixes my mood like",
+    "answer": "A long walk, fresh air, and a playlist that gets it."
+  },
+  {
+    "category": "Self-care",
+    "question": "Nothing fixes my mood like",
+    "answer": "Cooking something simple while talking to a good friend."
+  },
+  {
+    "category": "Self-care",
+    "question": "Nothing fixes my mood like",
+    "answer": "Putting my phone away and getting outside for half an hour."
+  },
+  {
+    "category": "Self-care",
+    "question": "My perfect Sunday includes",
+    "answer": "A slow breakfast, a market, and absolutely no rushing."
+  },
+  {
+    "category": "Self-care",
+    "question": "My perfect Sunday includes",
+    "answer": "Coffee, a long walk, and cooking enough dinner for leftovers."
+  },
+  {
+    "category": "Self-care",
+    "question": "My perfect Sunday includes",
+    "answer": "A book in the morning and people I like around the table by evening."
+  },
+  {
+    "category": "Self-care",
+    "question": "The kind of plans I'll always say yes to are",
+    "answer": "A picnic with a good view and no complicated logistics."
+  },
+  {
+    "category": "Self-care",
+    "question": "The kind of plans I'll always say yes to are",
+    "answer": "A new cafe followed by a walk we can make up as we go."
+  },
+  {
+    "category": "Self-care",
+    "question": "The kind of plans I'll always say yes to are",
+    "answer": "Cooking with friends and staying until the conversation winds down."
+  },
+  {
+    "category": "Self-care",
+    "question": "I’ve been challenging myself to",
+    "answer": "Try a new hobby without expecting to be good at it immediately."
+  },
+  {
+    "category": "Self-care",
+    "question": "I’ve been challenging myself to",
+    "answer": "Make a plan instead of just saying we should catch up soon."
+  },
+  {
+    "category": "Self-care",
+    "question": "I’ve been challenging myself to",
+    "answer": "Leave a little more space in the week for something unexpected."
+  }
+]
