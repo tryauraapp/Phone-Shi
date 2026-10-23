@@ -3,13 +3,57 @@ import asyncio
 from pathlib import Path
 import subprocess
 import tempfile
+import json
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import emulator_proxy as proxy
 
 
 class ProxyTests(unittest.TestCase):
+    def test_launch_refreshes_private_ramdisk_after_root_patch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            avd = home / 'Test.avd'
+            modem = avd / 's25-system/data/misc/modem_simulator'
+            modem.mkdir(parents=True)
+            (modem / 'iccprofile_for_sim0.xml').write_text('<sim/>')
+            private = avd / 'engine'
+            (private / 'qemu').mkdir(parents=True)
+            (avd / 's25-identifiers.json').write_text(json.dumps(dict(
+                avd='Test', private_emulator=str(private), serial='S25TEST')))
+            with patch.dict(os.environ, {'ANDROID_AVD_HOME': directory}), \
+                 patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--no-proxy']), \
+                 patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:
+                for contents in (b'stock ramdisk', b'rootAVD patched ramdisk'):
+                    (avd / 'ramdisk.img').write_bytes(contents)
+                    proxy.main()
+                    self.assertEqual((avd / 's25-system/ramdisk.img').read_bytes(), contents)
+                    arguments = launch.call_args.args[0]
+                    self.assertEqual(arguments[arguments.index('-ramdisk') + 1], str(avd / 's25-system/ramdisk.img'))
+
+    def test_location_uses_authenticated_proxy_tunnel_and_validates_result(self):
+        data = dict(success=True, ip='192.0.2.8', latitude=42.3314,
+                    longitude=-83.0457, timezone={'id': 'America/Detroit'},
+                    city='Detroit', region='Michigan', country='United States')
+        with patch.object(proxy.http.client, 'HTTPSConnection') as connection:
+            response = connection.return_value.getresponse.return_value
+            response.status = 200
+            response.read.return_value = json.dumps(data).encode()
+            result = proxy.locate('http://user:password@proxy.example:8080')
+            connection.assert_called_once_with('proxy.example', 8080, timeout=30)
+            connection.return_value.set_tunnel.assert_called_once_with(
+                'ipwho.is', 443, headers={'Proxy-Authorization': 'Basic dXNlcjpwYXNzd29yZA=='})
+            self.assertEqual(result['timezone'], 'America/Detroit')
+            self.assertEqual(result['latitude'], data['latitude'])
+            self.assertNotIn('password', json.dumps(result))
+            for changes in ({'success': False}, {'latitude': 91}, {'longitude': float('nan')},
+                            {'timezone': {'id': 'invalid/zone'}}, {'ip': 'invalid'}):
+                response.read.return_value = json.dumps(dict(data, **changes)).encode()
+                with self.assertRaises((ValueError, KeyError)):
+                    proxy.locate('http://proxy.example:8080')
+            connection.return_value.close.assert_called()
+
     def test_formats_and_validation(self):
         expected = 'http://user:password@192.0.2.1:8080'
         self.assertEqual(proxy.normalize('192.0.2.1:8080:user:password'), expected)
@@ -52,6 +96,19 @@ class ProxyTests(unittest.TestCase):
 
 
 class RelayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_proxy_option_precedes_qemu_passthrough(self):
+        server = MagicMock()
+        server.sockets[0].getsockname.return_value = ('127.0.0.1', 23456)
+        process = MagicMock(returncode=0)
+        process.wait = AsyncMock(return_value=0)
+        command = ['/sdk/emulator', '-avd', 'Test', '-qemu', '-global', 'virtio-net-device.mac=06:11:22:33:44:55']
+        with patch.object(proxy.asyncio, 'start_server', new_callable=AsyncMock, return_value=server), \
+             patch.object(proxy.asyncio, 'create_subprocess_exec', new_callable=AsyncMock, return_value=process) as launch:
+            self.assertEqual(await proxy.launch(command, {}, 'http://host:8080'), 0)
+        arguments = launch.call_args.args
+        self.assertLess(arguments.index('-http-proxy'), arguments.index('-qemu'))
+        self.assertEqual(arguments[-2:], ('-global', 'virtio-net-device.mac=06:11:22:33:44:55'))
+
     async def test_http10_success_normalized_and_tunnel_preserves_bytes(self):
         observed = []
 

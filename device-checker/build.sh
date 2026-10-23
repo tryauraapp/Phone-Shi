@@ -4,7 +4,24 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")" && pwd)
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 TOOLS="$SDK/build-tools/36.0.0"
-ANDROID_JAR="${ANDROID_JAR:-$SDK/platforms/android-37.0/android.jar}"
+if [[ -z "${ANDROID_JAR:-}" ]]; then
+  ANDROID_JAR="$SDK/platforms/android-35/android.jar"
+  if [[ ! -f "$ANDROID_JAR" ]]; then
+    # Accept a newer installed platform; do not require this Mac's SDK version.
+    ANDROID_JAR=$(python3 - "$SDK" <<'PY'
+from pathlib import Path
+import re
+import sys
+versions = []
+for jar in (Path(sys.argv[1]) / 'platforms').glob('android-*/android.jar'):
+    version = jar.parent.name[8:]
+    if re.fullmatch(r'\d+(?:\.\d+)*', version) and int(version.split('.')[0]) >= 35:
+        versions.append((tuple(map(int, version.split('.'))), jar))
+print(max(versions)[1] if versions else Path(sys.argv[1]) / 'platforms/android-35/android.jar')
+PY
+)
+  fi
+fi
 BUILD="$ROOT/build"
 mkdir -p "$BUILD/classes" "$BUILD/dex" "$ROOT/.signing"
 [[ -f "$ANDROID_JAR" ]] || { echo "Missing Android platform jar: $ANDROID_JAR" >&2; exit 1; }

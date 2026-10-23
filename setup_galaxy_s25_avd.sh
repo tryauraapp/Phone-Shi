@@ -8,7 +8,7 @@
 #   4. Grants Magisk su to the adb shell and completes Magisk's "additional setup"
 #   5. Runs galaxy_s25_avd_lab.sh: baseline inventory → Galaxy S25 profile → reboot
 #      verification → post-change inventory
-#   6. Installs apps (.xapk split bundles or plain .apk) after the profile is active
+#   6. Signs into Google Play and installs/opens Bumble after the profile is active
 #   7. Isolates Bumble's Magisk mounts and installs per-device battery simulation
 #
 #  Usage: ./setup_galaxy_s25_avd.sh [--name NAME] [--app FILE]... [--no-apps]
@@ -24,9 +24,9 @@
 #    --no-proxy  disable the default .local/emulator-proxy for this run
 #    --keep-file-paths / --keep-graphics-labels  skip the corresponding fixtures
 #    --no-checker  skip installing and running Device Red Flags
-#    --app      .xapk or .apk to install (repeatable). Without --app, every .xapk/.apk
-#               next to this script is installed
-#    --no-apps  skip app installation
+#    --app      optional extra .xapk or .apk to install (repeatable)
+#    --no-apps  skip extra apps and the Google Play Bumble installation
+#    --no-play-store  skip the Google Play Bumble installation only
 #    --no-bumble-signup  skip the final interactive Bumble signup step
 #    --bumble-signup  enable the final signup step (default)
 #    --profile-name NAME  Bumble first name (separate from the AVD name)
@@ -64,6 +64,7 @@ CORES=4
 YES=0
 APPS=()
 NO_APPS=0
+PLAY_STORE_BUMBLE=1
 FINGERPRINT=
 BATTERY_SIM=1
 SIGNAL_SIM=1
@@ -81,7 +82,14 @@ BUMBLE_PROFILE_NAME=
 BUMBLE_PROFILE_GENDER=
 FRONT_CAMERA=emulated
 PROXY_OPTIONS=()
+# Direct-network fallback only; proxy runs resolve these before creating the AVD.
+# Emulator console geo fix takes longitude before latitude.
+LOCATION_LATITUDE=40.7357
+LOCATION_LONGITUDE=-74.1724
+LOCATION_TIMEZONE=America/New_York
+LOCATION_LABEL='Newark, New Jersey'
 ROOT_PACKAGES=(com.bumble.app dev.emulab.devicecheck)
+NETWORK_PROFILE_INSTALLED=0
 
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 export PATH="$SDK/platform-tools:$SDK/emulator:$PATH"
@@ -104,6 +112,7 @@ while (($#)); do
     --vsync) VSYNC=${2:?}; shift ;;
     --app) APPS+=("${2:?}"); shift ;;
     --no-apps) NO_APPS=1 ;;
+    --no-play-store) PLAY_STORE_BUMBLE=0 ;;
     --no-bumble-signup) BUMBLE_SIGNUP=0 ;;
     --bumble-signup) BUMBLE_SIGNUP=1 ;;
     --profile-name) BUMBLE_PROFILE_NAME=${2:?}; shift ;;
@@ -137,16 +146,33 @@ done
 
 source "$SCRIPT_DIR/setup_options.sh" || exit 1
 configure_setup || exit 2
+(( !NO_APPS )) || PLAY_STORE_BUMBLE=0
 HOST_PROXY=$(python3 -I "$SCRIPT_DIR/emulator_proxy.py" --resolve ${PROXY_OPTIONS[@]+"${PROXY_OPTIONS[@]}"}) || exit 2
 if ((DRY_RUN)); then
   printf 'AVD name: %s\nAndroid Studio display name: %s\nRAM: %s MB\nCores: %s\nRefresh rate: %s\n' "$NAME" "${NAME//_/ }" "$RAM_MB" "$CORES" "${VSYNC:-emulator default}"
   printf 'Front camera: %s\n' "$FRONT_CAMERA"
+  if [[ -n "$HOST_PROXY" ]]; then
+    printf 'Location and time zone: resolved from the proxy exit IP at startup (lookup skipped in dry-run)\n'
+  else
+    printf 'Location: %s (%s, %s)\nTime zone: %s\n' "$LOCATION_LABEL" "$LOCATION_LATITUDE" "$LOCATION_LONGITUDE" "$LOCATION_TIMEZONE"
+  fi
+  printf 'GPS movement: 20–30 feet every 3–5 seconds; within 1000 feet of the startup center\n'
+  printf 'Identifiers: unique persistent synthetic IMEI, serial and Android ID per new AVD\n'
+  printf 'CPU architecture: ARM64; original CPU implementer retained\n'
+  printf 'Network: simulated LTE cellular data; Wi-Fi off; unique private subnet and MAC addresses\n'
+  printf 'User-Agent: unique S25 / Android 15 test profile exported; Bumble override not applied\n'
   if [[ -n "$HOST_PROXY" ]]; then
     printf 'Host proxy: enabled (TCP only; Android proxy settings untouched)\n'
   else
     printf 'Host proxy: disabled\n'
   fi
   printf 'Identity: Samsung Galaxy S25\nBattery: %s\nSignal: %s\nQEMU profile: %s\nSensor labels: %s\nFile aliases: %s\nGraphics labels: %s\nRoot isolation: %s\nChecker: %s\n' "$BATTERY_SIM" "$SIGNAL_SIM" "$QEMU_PROFILE" "$SENSOR_LABELS" "$FILE_ALIASES" "$GRAPHICS_LABELS" "$ROOT_ISOLATION" "$CHECKER"
+  if ((PLAY_STORE_BUMBLE)); then
+    printf 'Bumble installation: Google Play → private sign-in → Install → wait → Open\n'
+  else
+    printf 'Bumble installation: Google Play skipped\n'
+  fi
+  printf 'Local app bundles: explicit --app files only; no automatic APK/XAPK installation\n'
   printf 'Bumble signup: %s (requires installed Bumble and a terminal; prompts after device setup)\n' "$BUMBLE_SIGNUP"
   if ((BUMBLE_SIGNUP)); then
     printf 'Bumble profile name: %s\nBumble profile gender: %s\nBumble photos: 4 random images from the supplied photo pool (video excluded)\nPhone number: requested only at Bumble phone entry\n' "${BUMBLE_PROFILE_NAME:-ask at signup}" "${BUMBLE_PROFILE_GENDER:-ask at signup}"
@@ -158,11 +184,9 @@ AVD_DIR="$AVD_HOME/$NAME.avd"
 WORK="$HOME/galaxy_s25_avd_backups/$NAME/setup"
 LOG="$WORK/setup-$(date +%Y%m%d-%H%M%S).log"
 
-# Apps to install: the --app files, or every .xapk/.apk beside this script.
+# Local apps are opt-in. Bumble comes from Google Play by default.
 if ((NO_APPS)); then
   APPS=()
-elif ((${#APPS[@]} == 0)); then
-  for f in "$SCRIPT_DIR"/*.xapk "$SCRIPT_DIR"/*.apk; do [[ -f "$f" ]] && APPS+=("$f"); done
 fi
 
 # ── UI ──────────────────────────────────────────────────────────────────────
@@ -173,7 +197,7 @@ else
   B= DIM= RED= GRN= YEL= BLU= MAG= CYN= X=
 fi
 STEP=0
-STEPS=$((9 + (${#APPS[@]} > 0) + BATTERY_SIM + ROOT_ISOLATION + SIGNAL_SIM + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + BUMBLE_SIGNUP))
+STEPS=$((12 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + BATTERY_SIM + ROOT_ISOLATION + SIGNAL_SIM + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + BUMBLE_SIGNUP))
 log()  { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"; }
 step() { STEP=$((STEP+1)); printf '\n %s[%d/%d]%s %s%s%s\n' "$CYN" "$STEP" "$STEPS" "$X" "$B" "$*" "$X"; log "== $*"; }
 info() { printf '   %s›%s %s\n' "$CYN" "$X" "$*"; log "info: $*"; }
@@ -221,8 +245,39 @@ gone() { ! find_serial >/dev/null && ! pgrep -f -- "-avd $NAME( |$)" >/dev/null;
 # Root scripts go over stdin: `adb shell su -c 'a; b'` would run b as the shell user.
 dsu() { printf '%s\n' "$1" | adb -s "$SERIAL" shell su 2>&1 | tr -d '\r'; }
 
+set_location() {
+  local result
+  adb -s "$SERIAL" shell cmd location set-location-enabled true >>"$LOG" 2>&1 || die "Could not enable device location."
+  result=$(adb -s "$SERIAL" emu geo fix "$LOCATION_LONGITUDE" "$LOCATION_LATITUDE" 0 8 2>&1 | tr -d '\r')
+  [[ $? == 0 && "$result" == *OK* && "$result" != *KO:* ]] || die "Could not set GPS location: $result"
+  ok "GPS set to $LOCATION_LABEL ($LOCATION_LATITUDE, $LOCATION_LONGITUDE)"
+}
+
+verify_identifiers() {
+  python3 -I "$SCRIPT_DIR/device_identifiers.py" --avd-dir "$AVD_DIR" --verify-serial "$SERIAL" --adb "$SDK/platform-tools/adb" >"$WORK/identifiers-verified.json" 2>>"$LOG" ||
+    die "Device identifiers did not match their reserved values; see $LOG."
+  ok "Modem IMEI, serial and Android ID match this device's unique persistent identifiers"
+}
+
+verify_cpu_architecture() {
+  local abi machine
+  abi=$(adb -s "$SERIAL" shell getprop ro.product.cpu.abi | tr -d '\r') || die "Could not read CPU ABI."
+  machine=$(adb -s "$SERIAL" shell uname -m | tr -d '\r') || die "Could not read kernel architecture."
+  [[ "$abi" == arm64-v8a && "$machine" == aarch64 ]] ||
+    die "Expected ARM64 Android and kernel; got ABI=$abi, kernel=$machine."
+  ok "ARM64 CPU verified: Android ABI=$abi, kernel=$machine"
+  return 0
+}
+
+ensure_cellular_network() {
+  python3 "$SCRIPT_DIR/setup_network.py" --serial "$SERIAL" >>"$LOG" 2>&1 || die "LTE cellular data is not validated; see $LOG."
+  if ((NETWORK_PROFILE_INSTALLED)); then
+    dsu 'sh /data/adb/service.d/96-s25-network.sh' >>"$LOG" 2>&1 || die "LTE network boot service failed."
+  fi
+}
+
 launch() { # launch [extra emulator args...]
-  local args=(-avd "$NAME" -no-snapshot-load -no-snapshot-save -camera-front "$FRONT_CAMERA")
+  local args=(-avd "$NAME" -no-snapshot-load -no-snapshot-save -camera-front "$FRONT_CAMERA" -timezone "$LOCATION_TIMEZONE")
   [[ -n "$VSYNC" ]] && args+=(-vsync-rate "$VSYNC")
   log "launch: emulator ${args[*]} $*"
   # Only the host emulator process receives the proxy, including every setup restart.
@@ -230,6 +285,9 @@ launch() { # launch [extra emulator args...]
   spin_wait "Starting emulator" 240 serial_up || die "Emulator did not attach to adb (see $WORK/emulator.log)."
   spin_wait "Waiting for guest adbd" 240 guest_up || die "Guest on $SERIAL never identified as $NAME."
   spin_wait "Booting Android" 600 booted || die "Android did not finish booting."
+  verify_cpu_architecture
+  ensure_cellular_network
+  set_location
   ok "$NAME is up as $SERIAL"
 }
 
@@ -255,6 +313,23 @@ printf '%s%s\n' "$B$BLU" "
 printf '   %sNew Medium Phone AVD → Magisk root → Galaxy S25 profile%s\n' "$DIM" "$X"
 
 step "Pre-flight"
+if [[ -n "$HOST_PROXY" ]]; then
+  info "Resolving GPS center and time zone through the configured proxy"
+  python3 -I "$SCRIPT_DIR/emulator_proxy.py" --location ${PROXY_OPTIONS[@]+"${PROXY_OPTIONS[@]}"} >"$WORK/proxy-location.json" ||
+    die "Proxy geolocation failed; no new AVD was created."
+  LOCATION_VALUES=$(python3 -I - "$WORK/proxy-location.json" <<'PY'
+import json, sys
+p = json.load(open(sys.argv[1]))
+for key in ('latitude', 'longitude', 'timezone', 'label'):
+    print(p[key])
+PY
+  ) || die "Could not read proxy geolocation."
+  LOCATION_LATITUDE=$(printf '%s\n' "$LOCATION_VALUES" | sed -n '1p')
+  LOCATION_LONGITUDE=$(printf '%s\n' "$LOCATION_VALUES" | sed -n '2p')
+  LOCATION_TIMEZONE=$(printf '%s\n' "$LOCATION_VALUES" | sed -n '3p')
+  LOCATION_LABEL=$(printf '%s\n' "$LOCATION_VALUES" | sed -n '4p')
+  ok "Proxy location: $LOCATION_LABEL ($LOCATION_LATITUDE, $LOCATION_LONGITUDE); $LOCATION_TIMEZONE"
+fi
 command -v adb >/dev/null || die "adb not found in $SDK/platform-tools."
 command -v emulator >/dev/null || die "emulator not found in $SDK/emulator."
 case "$FRONT_CAMERA" in
@@ -273,6 +348,11 @@ for f in setup_su.py setup_magisk.py setup_ui.py generate_lab_profile.py device_
   [[ -f "$SCRIPT_DIR/$f" ]] || die "Missing helper $SCRIPT_DIR/$f"
 done
 (( !BUMBLE_SIGNUP )) || [[ -f "$SCRIPT_DIR/bumble_signup.py" ]] || die 'Missing bumble_signup.py helper.'
+if ((PLAY_STORE_BUMBLE)); then
+  for f in play_store_install.py google_play_signin.py; do
+    [[ -f "$SCRIPT_DIR/$f" ]] || die "Missing $f helper."
+  done
+fi
 (( !BUMBLE_SIGNUP )) || [[ -f "$SCRIPT_DIR/setup_network.py" ]] || die 'Missing setup_network.py helper.'
 (( !BUMBLE_SIGNUP )) || [[ -f "$SCRIPT_DIR/bumble-signup/prompt-pool.json" ]] || die 'Missing Bumble prompt pool.'
 [[ -f "$SCRIPT_DIR/prepare_modem_config.py" ]] || die 'Missing prepare_modem_config.py helper.'
@@ -404,12 +484,14 @@ target=android-35
 vm.heapSize=228
 EOF
 "$SDK/emulator/mksdcard" 512M "$AVD_DIR/sdcard.img" >>"$LOG" 2>&1 || warn "mksdcard failed (AVD will run without an SD card)."
+python3 -I "$SCRIPT_DIR/device_identifiers.py" --avd-dir "$AVD_DIR" --name "$NAME" --sdk "$SDK" \
+  --registry "$SCRIPT_DIR/.local/device-identifiers.sqlite3" >>"$LOG" 2>&1 || die "Could not prepare unique device identifiers and private emulator engines."
 # Private ramdisk: the emulator prefers ramdisk.img in the AVD folder over the system image's.
 cp "$STOCK" "$AVD_DIR/ramdisk.img"
 cp "$STOCK" "$AVD_DIR/ramdisk.img.stock"
 # Emulator resolves modem source configs relative to the selected ramdisk.
 # A private ramdisk needs its matching SDK data/misc/modem_simulator directory.
-python3 -I "$SCRIPT_DIR/prepare_modem_config.py" --system-image "$SYSIMG" --avd-dir "$AVD_DIR" >>"$LOG" 2>&1 ||
+python3 -I "$SCRIPT_DIR/prepare_modem_config.py" --system-image "$SYSIMG" --avd-dir "$AVD_DIR" --lte-only >>"$LOG" 2>&1 ||
   die "Could not stage modem configs beside the private ramdisk (see $LOG)."
 if ((BATTERY_SIM || SIGNAL_SIM)); then
   python3 -I "$SCRIPT_DIR/generate_lab_profile.py" --name "$NAME" --output-dir "$WORK/profile" >>"$LOG" 2>&1 ||
@@ -421,9 +503,10 @@ ok "AVD created at $AVD_DIR (fast boot off: every launch is a cold boot so Magis
 # ── 2. First boot (stock) ───────────────────────────────────────────────────
 step "First boot with the private stock ramdisk"
 launch
+python3 -I "$SCRIPT_DIR/device_identifiers.py" --avd-dir "$AVD_DIR" --initialize-serial "$SERIAL" --adb "$SDK/platform-tools/adb" >>"$LOG" 2>&1 || die "Could not initialize Android ID and per-device settings."
 rd=$(sed -n 's/^disk\.ramdisk\.path *= *//p' "$AVD_DIR/hardware-qemu.ini" 2>/dev/null)
 canon() { (cd "$(dirname "$1")" 2>/dev/null && echo "$(pwd -P)/$(basename "$1")"); }
-[[ -n "$rd" && "$(canon "$rd")" == "$(canon "$AVD_DIR/ramdisk.img")" ]] || die "Emulator used '$rd' instead of the AVD's own ramdisk — stopping before rooting."
+[[ -n "$rd" && "$(canon "$rd")" == "$(canon "$AVD_DIR/s25-system/ramdisk.img")" ]] || die "Emulator used '$rd' instead of the AVD's private launch ramdisk — stopping before rooting."
 ok "Emulator boots this AVD's own ramdisk: ${DIM}$rd${X}"
 if [[ "$(adb -s "$SERIAL" shell 'command -v magisk' 2>/dev/null)" == *magisk* ]]; then
   die "Magisk is already present on a supposedly stock boot — refusing to continue."
@@ -437,6 +520,7 @@ ok "Google Play components present"
 if ((CHECKER)); then
   step "Installing Device Red Flags"
   adb -s "$SERIAL" install -r "$SCRIPT_DIR/device-checker/DeviceRedFlags.apk" >>"$LOG" 2>&1 || die "Checker installation failed."
+  adb -s "$SERIAL" shell pm grant dev.emulab.devicecheck android.permission.READ_PHONE_STATE >>"$LOG" 2>&1 || die "Could not grant checker permission to verify LTE."
 fi
 
 # ── 3. Root with rootAVD ────────────────────────────────────────────────────
@@ -549,6 +633,29 @@ export S25_LAB_ALLOW="$NAME"
 step "Baseline emulator-signal inventory (before spoofing)"
 "$LAB" --avd "$NAME" --action inventory | sed -n '/\[1\/2\]/,/\[2\/2\]/p' | grep -E '✓|!|✗' || die "Inventory failed."
 
+step "Installing the per-device Android radio IMEI overlay"
+mkdir -p "$WORK/radio"
+dsu 'set -e
+cp /vendor/lib64/libril-modem-lib.so /data/local/tmp/s25-original-radio.so
+chmod 644 /data/local/tmp/s25-original-radio.so' >>"$LOG" 2>&1 || die "Could not stage the original radio library."
+adb -s "$SERIAL" pull /data/local/tmp/s25-original-radio.so "$WORK/radio/original.so" >>"$LOG" 2>&1 || die "Could not retrieve the radio library."
+python3 -I "$SCRIPT_DIR/patch_radio_imei.py" --input "$WORK/radio/original.so" --identity "$AVD_DIR/s25-identifiers.json" --output-dir "$WORK/radio" >>"$LOG" 2>&1 || die "Unsupported radio IMEI layout; no overlay installed."
+adb -s "$SERIAL" push "$WORK/radio/s25_radio_imei.zip" /data/local/tmp/s25_radio_imei.zip >>"$LOG" 2>&1 || die "Could not copy radio IMEI overlay."
+dsu 'magisk --install-module /data/local/tmp/s25_radio_imei.zip' >>"$LOG" 2>&1 || die "Radio IMEI overlay install failed."
+ok "Android radio API will use this phone's reserved IMEI after the profile reboot"
+
+step "Installing the cellular-only LTE network profile"
+adb -s "$SERIAL" push "$AVD_DIR/s25-network.conf" /data/local/tmp/s25-network.conf >>"$LOG" 2>&1 || die "Could not copy network configuration."
+adb -s "$SERIAL" push "$SCRIPT_DIR/device_network_profile.sh" /data/local/tmp/s25-network-profile.sh >>"$LOG" 2>&1 || die "Could not copy network service."
+dsu 'set -e
+mkdir -p /data/adb/service.d /data/adb/s25-avd-lab
+cp /data/local/tmp/s25-network.conf /data/adb/s25-avd-lab/network.conf
+chmod 600 /data/adb/s25-avd-lab/network.conf
+cp /data/local/tmp/s25-network-profile.sh /data/adb/service.d/96-s25-network.sh
+chmod 755 /data/adb/service.d/96-s25-network.sh
+rm -f /data/local/tmp/s25-network.conf /data/local/tmp/s25-network-profile.sh' >>"$LOG" 2>&1 || die "Could not install cellular network profile."
+NETWORK_PROFILE_INSTALLED=1
+
 if ((QEMU_PROFILE)); then
   step "Installing the late-boot QEMU property profile"
   adb -s "$SERIAL" push "$SCRIPT_DIR/device_qemu_profile.sh" /data/local/tmp/s25-qemu-profile.sh >>"$LOG" 2>&1 || die "Could not copy QEMU profile."
@@ -579,6 +686,10 @@ info "The first boot with a new fingerprint is slow: Android treats it like a sy
 profile_args=()
 [[ -z "$FINGERPRINT" ]] || profile_args+=(--fingerprint "$FINGERPRINT")
 "$LAB" --avd "$NAME" --action apply --yes ${profile_args[@]+"${profile_args[@]}"} || die "Profile apply failed."
+verify_cpu_architecture
+ensure_cellular_network
+set_location
+verify_identifiers
 
 if ((QEMU_PROFILE)); then
   qemu_profile_ok() {
@@ -662,6 +773,19 @@ if ((${#APPS[@]})); then
   for f in "${APPS[@]}"; do install_app "$f" || die "Installing $(basename "$f") failed (see $LOG)."; done
 fi
 
+if ((PLAY_STORE_BUMBLE)); then
+  step "Installing and opening Bumble from Google Play"
+  if ((INTERACTIVE == 0)) || [[ ! -t 0 ]]; then
+    warn "Google Play sign-in awaits an interactive terminal; local Bumble bundles will not be installed."
+    printf '   Resume Google Play: python3 %q --serial %q --avd %q --sign-in\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
+  else
+    # Google credentials and manual verification input must never enter the setup log.
+    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --sign-in ||
+      die "Google Play installation paused or failed; the phone is retained. Resume with play_store_install.py --sign-in."
+    ok "Bumble installed by Google Play and opened; continuing the existing setup and signup flow"
+  fi
+fi
+
 if ((ROOT_ISOLATION)); then
   step "Configuring Magisk mount isolation for installed test apps"
   isolated_packages=0
@@ -681,6 +805,10 @@ if ((ROOT_ISOLATION)); then
     OLD_BOOT=$(boot_id)
     adb -s "$SERIAL" reboot >>"$LOG" 2>&1 || die "Isolation activation reboot failed."
     spin_wait "Activating root isolation" 360 new_boot || die "Android did not finish the isolation activation reboot."
+    verify_cpu_architecture
+    ensure_cellular_network
+    set_location
+    verify_identifiers
     su_works || die "Shell root was not retained after activating isolation."
     if ((QEMU_PROFILE)); then
       spin_wait "Verifying QEMU settings after isolation reboot" 30 qemu_profile_ok || {
@@ -727,6 +855,13 @@ if ((SIGNAL_SIM)); then
   info "python3 '$SCRIPT_DIR/emulator_signal_sim.py' --avd '$NAME' --profile '$WORK/profile/device-profile.json' --background"
 fi
 
+step "Starting bounded GPS movement around the startup location"
+python3 -I "$SCRIPT_DIR/emulator_location_sim.py" --avd "$NAME" --output "$WORK/location" \
+  --latitude "$LOCATION_LATITUDE" --longitude "$LOCATION_LONGITUDE" --background >>"$LOG" 2>&1 || die "GPS controller exited; see $WORK/location/location.log."
+ok "GPS moves 20–30 feet every 3–5 seconds within 1000 feet of the startup center"
+info "Controller stops when the emulator disconnects. Restart after a later launch:"
+printf '   python3 %q --avd %q --output %q --latitude %q --longitude %q --background\n' "$SCRIPT_DIR/emulator_location_sim.py" "$NAME" "$WORK/location" "$LOCATION_LATITUDE" "$LOCATION_LONGITUDE"
+
 if ((ROOT_ISOLATION && !KEEP_MAGISK_APP)); then
   step "Removing the Magisk manager package while retaining the boot daemon"
   manager_result=$(adb -s "$SERIAL" shell cmd package uninstall -k "$MAGISK_PKG" 2>&1 | tr -d '\r')
@@ -756,6 +891,16 @@ for finding in p['findings']:
         print(f"   {finding['severity']}: {finding['name']}")
 PY
   info "Saved report: $WORK/checker-report.json"
+  python3 - "$WORK/checker-report.json" <<'PY'
+import json, re, sys
+p = json.load(open(sys.argv[1]))
+network = [f for f in p['findings'] if f['name'] == 'Network topology']
+if len(network) != 1 or 'Transport=CELLULAR' not in network[0]['evidence'] or 'Data network=LTE' not in network[0]['evidence']:
+    raise SystemExit('Checker app does not see LTE cellular data as its active network')
+if re.search(r'\b10\.0\.2\.\d+\b', network[0]['evidence']):
+    raise SystemExit('Default emulator subnet remains visible inside the checker app')
+PY
+  [[ $? == 0 ]] || die "App-visible network verification failed."
   if ((ROOT_ISOLATION)); then
     python3 - "$WORK/checker-report.json" <<'PY'
 import json, sys

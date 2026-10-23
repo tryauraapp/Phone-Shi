@@ -197,6 +197,12 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
             self.assertIn('Graphics labels: 1', first)
             self.assertIn('Battery: 1', first)
             self.assertIn('Checker: 1', first)
+            self.assertIn('Bumble installation: Google Play', first)
+            self.assertIn('no automatic APK/XAPK installation', first)
+            skipped = subprocess.run(command + ['--no-apps'], env=env, capture_output=True, text=True, check=True).stdout
+            self.assertIn('Bumble installation: Google Play skipped', skipped)
+            skipped = subprocess.run(command + ['--no-play-store'], env=env, capture_output=True, text=True, check=True).stdout
+            self.assertIn('Bumble installation: Google Play skipped', skipped)
             self.assertEqual(list(Path(directory).iterdir()), [])  # Preview has no writes.
             avds = Path(directory) / 'avds'
             avds.mkdir()

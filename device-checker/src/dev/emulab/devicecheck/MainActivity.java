@@ -16,6 +16,8 @@ import android.net.ConnectivityManager;
 import android.net.LinkAddress;
 import android.net.LinkProperties;
 import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.telephony.TelephonyManager;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
@@ -180,9 +182,13 @@ public class MainActivity extends Activity {
         try {
             ConnectivityManager connectivity=(ConnectivityManager)getSystemService(CONNECTIVITY_SERVICE);
             Network network=connectivity.getActiveNetwork(); LinkProperties links=network==null?null:connectivity.getLinkProperties(network);
+            NetworkCapabilities caps=network==null?null:connectivity.getNetworkCapabilities(network);
+            String transport=caps==null?"NONE":caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)?"CELLULAR":caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)?"WIFI":"OTHER";
+            String radio="Unavailable";
+            try { TelephonyManager phone=(TelephonyManager)getSystemService(TELEPHONY_SERVICE); int type=phone.getDataNetworkType(); radio=type==TelephonyManager.NETWORK_TYPE_LTE?"LTE":String.valueOf(type); } catch(SecurityException denied) { radio="Permission required"; }
             List<String> addresses=new ArrayList<>(); boolean typical=false;
             if(links!=null) for(LinkAddress address:links.getLinkAddresses()) { String value=address.getAddress().getHostAddress(); addresses.add(value); if(value.startsWith("10.0.2.")) typical=true; }
-            out.add(new Finding("Network topology",typical?1:-2,addresses.isEmpty()?"No active network addresses":join(addresses),"10.0.2.x is common on Android Emulator, but physical devices and VPNs can use the same subnet. No request is sent to a server."));
+            out.add(new Finding("Network topology",typical?1:-2,"Transport="+transport+"\nData network="+radio+"\n"+(addresses.isEmpty()?"No active network addresses":join(addresses)),"Transport and radio type are read through Android APIs. 10.0.2.x is common on Android Emulator, but physical devices and VPNs can use the same subnet. No request is sent to a server."));
         } catch(Exception error) { out.add(new Finding("Network topology",-1,error.getClass().getSimpleName(),"Network information was unavailable to this app.")); }
         String cpu=readFile("/proc/cpuinfo",24000),lowerCpu=cpu.toLowerCase(Locale.ROOT);
         out.add(new Finding("CPU context",lowerCpu.contains("0x61")&&Build.MANUFACTURER.equalsIgnoreCase("samsung")?1:-2,"ABI="+join(java.util.Arrays.asList(Build.SUPPORTED_ABIS))+"\n"+cpuExcerpt(cpu),"An Apple implementer with a claimed Samsung model is inconsistent. CPU counts and missing /proc fields alone are not scored."));

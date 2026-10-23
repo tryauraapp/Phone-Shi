@@ -8,12 +8,14 @@ full setup flow and options.
 
 ## Inputs and behavior
 
-- Supply an authorized Bumble APK/XAPK locally and at least four photos in
-  `photos/`. No app package, personal photos or camera video is published.
+- Creation installs Bumble from Google Play by default. Supply at least four
+  photos in `photos/`. No personal photos or camera video is published.
 - Review `profile-defaults.json`. The checked-in birthday and profile choices
   are examples; name/gender are separate arguments or prompts.
 - Phone number and SMS code are requested only at their respective screens,
-  using hidden terminal input. They are held in memory. At the SMS prompt,
+  using hidden terminal input. Phone entry keeps the existing +1 country code
+  and fills only the national number, without opening the country selector.
+  They are held in memory. At the SMS prompt,
   `/mac` reads a six-digit code from the Mac clipboard; empty input tries the
   device clipboard. The helper never requests a replacement SMS automatically.
 - Five interests and two distinct prompt questions/answers are selected. The
@@ -28,6 +30,29 @@ full setup flow and options.
   before **Start connecting** instead. No swipes or messages are automated.
 
 ## Resume
+
+To install Bumble through Google Play instead of a local
+APK/XAPK, run this from the repository root:
+
+```sh
+python3 play_store_install.py --serial emulator-5554 --avd YOUR_AVD_NAME --sign-in
+```
+
+The helper opens Bumble's exact listing, taps **Install**, dismisses the optional
+Play Pass offer with **Not now**, and waits for both Android's installed-package
+record and the enabled **Open** control. It verifies Google Play as the installer,
+taps **Open**, and checks that Bumble reaches the foreground. Unknown prompts
+stop for manual handling. `--sign-in` handles the observed Google login screens
+with private terminal prompts; omit it when already signed in. Phone creation
+runs this helper after the rooted profile is active and keeps the existing
+Bumble signup steps afterward.
+
+The optional **Sign in with ease** carrier-discovery screen is dismissed with
+**SKIP**. The observed Google account setup used **Sign in** → email → **Next** → password
+→ **Next** → **I will be using this device** → **Next** → **I agree**. Optional
+recovery information was skipped with **Cancel**, home address with **Skip**,
+and Google services completed with basic device backup off, **MORE** → **ACCEPT**.
+Account-specific security checks may add screens to this flow.
 
 ```sh
 python3 bumble_signup.py --serial emulator-5554 --avd YOUR_AVD_NAME \

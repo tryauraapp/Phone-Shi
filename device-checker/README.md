@@ -4,6 +4,11 @@ A local Android diagnostic app installed as `dev.emulab.devicecheck`, with the l
 
 Build offline with the installed SDK and Java 17:
 
+Install build tools `36.0.0` and `platforms;android-35` first. The build prefers
+API 35, falls back to the newest installed numeric API 35+ platform, and accepts
+an explicit `ANDROID_JAR=/path/to/android.jar` override. The SDK is resolved
+from `ANDROID_SDK_ROOT`, `ANDROID_HOME`, then `~/Library/Android/sdk`.
+
 ```sh
 bash device-checker/build.sh
 adb -s emulator-5554 install -r device-checker/DeviceRedFlags.apk

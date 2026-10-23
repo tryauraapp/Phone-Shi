@@ -588,11 +588,14 @@ do_rollback() {
   dsu "cat $DEV_DIR/boot.log 2>/dev/null" >"$DIR/device-logs/boot-$(date +%Y%m%d-%H%M%S).log"
   dsu "touch $DEV_DIR/battery.disabled
 if [ -f /data/adb/service.d/97-s25-qemu.sh ]; then sh /data/adb/service.d/97-s25-qemu.sh --restore; fi
+if [ -f /data/adb/post-fs-data.d/97-s25-cpu.sh ]; then sh /data/adb/post-fs-data.d/97-s25-cpu.sh --restore; fi
 if [ -d /data/adb/modules/s25_sensor_labels ]; then touch /data/adb/modules/s25_sensor_labels/disable; fi
 if [ -d /data/adb/modules_update/s25_sensor_labels ]; then touch /data/adb/modules_update/s25_sensor_labels/disable; fi
+if [ -d /data/adb/modules/s25_radio_imei ]; then touch /data/adb/modules/s25_radio_imei/disable; fi
+if [ -d /data/adb/modules_update/s25_radio_imei ]; then touch /data/adb/modules_update/s25_radio_imei/disable; fi
 if [ -d /data/adb/modules/s25_qemu_metadata ]; then touch /data/adb/modules/s25_qemu_metadata/disable; fi
 if [ -d /data/adb/modules_update/s25_qemu_metadata ]; then touch /data/adb/modules_update/s25_qemu_metadata/disable; fi
-rm -f $PFD_SCRIPT $SVC_SCRIPT /data/adb/post-fs-data.d/98-s25-file-aliases.sh /data/adb/service.d/97-s25-qemu.sh /data/adb/service.d/98-s25-battery.sh
+rm -f $PFD_SCRIPT $SVC_SCRIPT /data/adb/post-fs-data.d/97-s25-cpu.sh /data/adb/post-fs-data.d/98-s25-file-aliases.sh /data/adb/service.d/96-s25-network.sh /data/adb/service.d/97-s25-qemu.sh /data/adb/service.d/98-s25-battery.sh
 dumpsys battery reset >/dev/null
 rm -rf $DEV_DIR" >/dev/null
   [[ "$(persistence_state)" == absent ]] && ok "Boot scripts and $DEV_DIR removed" || fail "Some lab files remain"

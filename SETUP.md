@@ -1,5 +1,73 @@
 For prerequisites, a fresh clone, private local inputs, and agent instructions, start with [README.md](README.md).
 
+## Device not found on another Mac
+
+Use a native Apple Silicon terminal. Install Android Studio and select the
+same SDK directory in both Studio and the terminal:
+
+```sh
+export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
+python3 mac_avd_doctor.py
+```
+
+If your SDK lives elsewhere, substitute Studio's actual SDK path. Install the
+Google Play API 35 ARM64 image, platform 35 and build tools 36.0.0 from the
+README. Accept SDK licenses locally with `sdkmanager --licenses`. A JDK must
+be available to `java`, `javac`, `jar` and `keytool`; if using Studio's bundled
+JDK, set `JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"`
+and prepend `"$JAVA_HOME/bin"` to `PATH`. Run `bash device-checker/build.sh`.
+
+The creation and proxy launcher scripts use `ANDROID_AVD_HOME` when set,
+otherwise `~/.android/avd`. Studio started from the Dock may not inherit your
+terminal's exports. The doctor also inspects the locations selected by
+`ANDROID_USER_HOME` and `ANDROID_EMULATOR_HOME`; if those disagree, use an
+explicit `ANDROID_AVD_HOME` for terminal launches and register in Studio's
+actual discovery directory.
+
+For an existing folder that Studio cannot find:
+
+```sh
+python3 mac_avd_doctor.py --avd YOUR_AVD_NAME \
+  --avd-dir /absolute/path/YOUR_AVD_NAME.avd --register
+```
+
+This repairs the `.ini` discovery pointer, not the virtual disk. Existing
+registrations are backed up beside the `.ini`; conflicting live registrations
+are refused. To undo, restore the printed backup, or remove only the newly
+created registration if none existed. Keep the `.avd` folder. Restart Studio
+and check **Tools > Device Manager > Virtual**. The helper verifies discovery
+with the SDK's `emulator -list-avds` under the selected Studio AVD home, but it
+cannot inspect the environment of a separately launched Studio process.
+
+If a phone still does not appear, run the doctor with `--sdk` matching Studio
+and `--studio-avd-home` matching its custom environment. If the phone appears
+but will not boot, read the reported image/host path/private engine findings.
+The helper does not delete lock files, wipe user data, modify system images,
+regenerate identifiers, launch emulators or bypass macOS security prompts.
+
+For a fresh clone with no phone data, create a new phone. An AVD is not included
+in GitHub. For copied lab phones, registration alone cannot repair the private
+engine's old SDK symlinks, absolute manifest path, SDK version compatibility,
+or missing host camera files. Preserve the original and create a fresh device
+on the destination Mac. Install a compatible SDK: this project's engine
+patches validate supported binary layouts and stop on unsupported versions;
+an arbitrary future Emulator release is not guaranteed to work.
+
+After discovery succeeds, launch the lab phone with:
+
+```sh
+python3 emulator_proxy.py --avd YOUR_AVD_NAME
+```
+
+Use `ANDROID_AVD_HOME=/path/to/registrations` for that command if its default
+differs from the registration directory. Studio's launcher omits this lab's
+private engine and proxy settings. Supply private proxy/media inputs locally;
+they are intentionally absent from GitHub.
+
+## Creation and configuration
+
 Run from this directory:
 
 ```sh
@@ -14,6 +82,79 @@ no Android proxy setting, VPN app or certificate is installed. Setup previews an
 launch command logs and the emulator's process arguments do not contain the
 credentials. The relay normalizes HTTP/1.0 CONNECT responses for compatibility
 with netsim and stops with the emulator. It never falls back to direct TCP.
+
+New phones resolve their GPS center and time zone from the configured proxy's
+exit IP before AVD creation. The HTTPS geolocation request goes through that
+authenticated proxy and never falls back to a direct connection. A failed
+lookup stops setup; dry-runs skip the network request. The result is saved to
+`~/galaxy_s25_avd_backups/NAME/setup/proxy-location.json`. IP geolocation is
+approximate. With `--no-proxy`, the fallback is Newark, New Jersey (`40.7357`,
+`-74.1724`, `America/New_York`). Setup enables device location and sends a GPS
+fix after startup and setup reboots, before app onboarding.
+After the final setup reboot, a host GPS controller moves 20–30 feet in a
+random direction every 3–5 seconds. Each fix stays within 1,000 feet of the
+original startup center; outward steps at the boundary are redrawn. The
+controller stops on disconnect or AVD identity change. Setup prints its restart
+command for later launches and saves the latest fix in
+`~/galaxy_s25_avd_backups/NAME/setup/location/location-state.json`.
+The startup center stays fixed throughout that creation run, even if the
+upstream proxy later rotates its exit IP.
+
+Every new AVD reserves its own synthetic IMEI (with a Luhn check digit), serial
+number, 16-character Android ID, locally administered unicast Wi-Fi/cellular
+MAC addresses and private `/23` network in `.local/device-identifiers.sqlite3`.
+Unique database constraints prevent reuse across creation runs; keep this local
+registry when moving the project. The AVD stores its stable values in
+`s25-identifiers.json`. Setup creates private, signed emulator engines for that
+AVD to change the modem's hardcoded IMEI, leaving the SDK engines untouched.
+After rooting, setup also installs a per-device Magisk overlay for the Android
+15 reference radio HAL. Its `getImei` method has a separate compiled-in stock
+value; changing only the host modem does not change Android's reported IMEI.
+The overlay changes only the validated immediate fields that construct this
+15-digit value. Unknown library layouts are rejected and the original is kept.
+The launcher reloads that private engine and serial on subsequent starts.
+Unsupported engine layouts stop setup rather than sharing a stock IMEI.
+The private engines also synchronize the modem's reported IPv4 address,
+gateway and DNS with the assigned radio subnet. Changing only the virtual
+router leaves Android using the modem's hardcoded `10.0.2.15` and breaks data.
+The supported ARM64 modem function layouts are checked before patching; an
+unknown engine layout stops setup. The emulator's subnet option allowlist does
+not include `dns=`, so the router uses its subnet-derived DNS address.
+Use `emulator_proxy.py` to launch these AVDs; Android Studio's normal launcher
+does not apply their private engine or serial options.
+
+Setup initializes the user-0 secure Android ID before app installation and
+checks it, the serial and the Android telephony-service IMEI after setup
+reboots. Results are saved as `identifiers-verified.json` in the setup backup
+directory. Apps on Android 15 receive signing-key/user-scoped Android IDs from
+their fresh per-device user data; those can differ from the user-0 secure value.
+These are emulator test identifiers, not manufacturer-assigned hardware IDs.
+
+The CPU architecture is already ARM64: setup uses the `arm64-v8a` system image
+and `hw.cpu.arch=arm64`. Each setup launch and final setup reboot verifies
+`ro.product.cpu.abi=arm64-v8a` and `uname -m=aarch64`, stopping on a mismatch.
+The Samsung profile reports `QTI` / `SM8750` for the SoC. CPU implementer
+spoofing is disabled; `/proc/cpuinfo` retains the kernel's actual implementer.
+Remaining CPU findings stay in the checker report and do not stop setup.
+
+Wi-Fi is disabled and the simulated SIM uses LTE-only mode. The launcher splits
+each reserved network into separate radio/Wi-Fi `/24` subnets and configures
+the virtual DHCP, router and DNS addresses. Its radio interface gets the reserved
+cellular MAC through QEMU. The boot service applies the reserved Wi-Fi MAC if
+`wlan0` exists while keeping Wi-Fi off. Setup checks active network addresses,
+MAC read-backs, Android's validated cellular default network and LTE radio type.
+The checker also reads cellular transport and LTE through Android APIs. There
+is no Wi-Fi recovery fallback. This is a simulated LTE connection backed by the
+host network and configured TCP proxy, not a physical mobile subscription.
+
+All phones keep the same Galaxy S25 / Android 15 hardware profile. Each stores
+separate persistent brightness, display timeout, haptic and font settings.
+Preferences are not identifiers: changes made by Android or the emulator are
+recorded under `settings_drift` and do not stop identifier verification.
+Its manifest also exports a unique S25/Android-15 test User-Agent with a profile
+suffix. **That UA is not applied to Bumble:** the app constructs its own headers
+and has no device-wide UA override. `user_agent_status` records this limitation;
+the exported string is not claimed to match the app's outgoing requests.
 
 Override it with `--proxy-file PATH` or `--proxy VALUE`, or use `--no-proxy` to
 disable it for a run. To start an existing phone with the same default proxy:
@@ -109,18 +250,29 @@ keyboard before re-reading button bounds. Error screenshots use the macOS
 emulator-window capture helper, because protected Android captures may be black.
 These screenshots can contain the personal details visible in the app.
 
-Before opening Bumble, the helper requires Android to report a validated
-default network. If none exists, it enables Wi-Fi, connects the emulator's
-visible open `AndroidWifi` access point, and waits for validation. It does not
-connect to other Wi-Fi networks. A cellular signal console response alone is
-not considered internet connectivity.
+Before opening Bumble, the helper disables Wi-Fi, enables simulated mobile
+data and requires Android to report a validated cellular default network with
+LTE radio registration. It does not fall back to Wi-Fi. A successful cellular
+signal console response alone is not considered internet connectivity.
 
-Creation also copies the SDK's `data/misc/modem_simulator` source configs beside
-the private ramdisk. The emulator resolves that directory relative to its
-selected ramdisk; missing files can disable modem startup. See the
+Creation stages the SDK's `data/misc/modem_simulator` source configs under
+`AVD/s25-system/data/misc/modem_simulator`. Before each launch, the launcher
+copies the AVD's current `ramdisk.img` to `AVD/s25-system/ramdisk.img` and selects
+it explicitly. This location survives first-boot cleanup of `AVD/data`, while
+still picking up rootAVD's patched ramdisk on later launches. The emulator
+resolves modem source configs relative to the selected ramdisk; missing files
+disable modem startup even though Android itself can boot. See the
 [emulator implementation](https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android-qemu2-glue/main.cpp).
 Existing phones repaired with `prepare_modem_config.py` need a full emulator
 cold restart to create the modem transport; an Android-only reboot cannot do so.
+
+For a phone created before this repair, keep the existing AVD and identifiers.
+Stage modem sources with `prepare_modem_config.py --system-image IMAGE_DIR
+--avd-dir AVD_DIR --lte-only`, update its private engines with
+`device_identifiers.py --avd-dir AVD_DIR --sdk SDK_DIR --repair-network`, and
+cold-start it through `emulator_proxy.py`. No userdata wipe is required.
+LTE selection and validation work before root; MAC and identifier checks that
+read root-protected files still run after Magisk setup.
 
 For a live front camera, first run `emulator -webcam-list`, then create with
 `./setup_galaxy_s25_avd.sh --front-camera webcamN` using the listed camera number.
@@ -229,9 +381,23 @@ Create unattended with a fresh name, or optionally specify an explicit name:
 ./setup_galaxy_s25_avd.sh --name My_Test_Phone --ram 6144 --cores 6 --vsync 120 --yes
 ```
 
-`--app FILE` is repeatable. By default, APK/XAPK files beside the script are
-installed. `--no-apps` skips these; `--no-checker` separately skips the diagnostic
-APK. Use `--help` for individual fixture opt-outs. `--keep-file-paths` also
+By default, Bumble is installed from Google Play after rooting and applying the
+Galaxy S25 profile, at the former local-app installation stage. Google email and
+password are requested privately in the terminal and are not saved or logged.
+The observed sign-in flow skips optional **Sign in with ease** carrier discovery,
+selects personal use, skips optional recovery and home address entry, and disables
+basic device backup. Uppercase Google buttons and a return to the signed-in
+Play Store home screen are supported. Extra Google security checks
+remain manual. Setup waits for installation, verifies Google Play as the installer,
+opens Bumble, and continues the existing final checks and account-creation flow.
+Google Play supplies its currently available compatible version.
+
+Local APK/XAPK files beside the script are no longer installed automatically.
+`--app FILE` explicitly installs extra local apps and is repeatable. `--no-apps`
+skips extra apps and Google Play installation; `--no-play-store` skips only the
+Google Play step. `--no-checker` separately skips the diagnostic APK. In
+non-interactive runs, Google sign-in/installation is deferred with a resume command.
+Use `--help` for individual fixture opt-outs. `--keep-file-paths` also
 disables graphics labels because those fixtures share a boot overlay.
 
 The image remains Android 35 / Google Play / arm64-v8a. Graphics fixtures are

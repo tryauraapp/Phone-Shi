@@ -56,20 +56,21 @@ class BumbleTests(unittest.TestCase):
 
     def test_phone_number_prompt_waits_for_phone_screen_action_and_is_cached(self):
         runner = self.runner()
-        with patch.object(b, 'ask', side_effect=['United States', '(303) 555-0123']) as ask, \
-                patch.object(runner, 'click') as click:
+        with patch.object(b, 'ask', return_value='(303) 555-0123') as ask, \
+                patch.object(runner, 'click') as click, patch.object(runner, 'fill') as fill:
             # Recognizing other screens and phone entry itself never prompts.
             runner.step(screen('46-verification-result.xml'))
             state, action = runner.step(screen('40-new-phone.xml'))
             ask.assert_not_called()
             self.assertEqual(state, 'phone number')
             action()
-            self.assertEqual(ask.call_count, 2)
+            self.assertEqual(ask.call_count, 1)
             self.assertEqual(runner.profile['phone'], '3035550123')
             self.assertTrue(ask.call_args.kwargs['secret'])
-            click.assert_called_with(rid='prefix_layout')
+            fill.assert_called_once_with(0, '3035550123')
+            click.assert_called_once_with('Continue')
             runner.phone_details()
-            self.assertEqual(ask.call_count, 2)
+            self.assertEqual(ask.call_count, 1)
 
     def test_random_photo_pool_uses_four_distinct_images_and_excludes_video(self):
         with tempfile.TemporaryDirectory() as directory:

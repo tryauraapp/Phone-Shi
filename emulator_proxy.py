@@ -3,10 +3,16 @@
 import argparse
 import asyncio
 import base64
+import http.client
+import ipaddress
+import json
+import math
 import os
+import shutil
 from pathlib import Path
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
+from zoneinfo import ZoneInfo
 
 DEFAULT_FILE = Path(__file__).resolve().parent / '.local' / 'emulator-proxy'
 
@@ -46,6 +52,71 @@ def resolve(value=None, file=None, disabled=False):
     if file or path.exists():
         return normalize(path.read_text())
     return ''
+
+
+def locate(upstream):
+    """Query the exit IP through this exact proxy, with no direct fallback."""
+    if not upstream:
+        raise ValueError('A proxy is required for location lookup.')
+    proxy = urlsplit(normalize(upstream))
+    headers = {}
+    if proxy.username is not None:
+        token = base64.b64encode(f'{unquote(proxy.username)}:{unquote(proxy.password)}'.encode()).decode()
+        headers['Proxy-Authorization'] = 'Basic ' + token
+    # HTTPSConnection establishes CONNECT over plain HTTP to the upstream, then
+    # verifies TLS to the destination. It does not consult NO_PROXY or env proxies.
+    connection = http.client.HTTPSConnection(proxy.hostname, proxy.port, timeout=30)
+    try:
+        connection.set_tunnel('ipwho.is', 443, headers=headers)
+        connection.request('GET', '/', headers={'Accept': 'application/json'})
+        response = connection.getresponse()
+        if response.status != 200:
+            raise ValueError('Geolocation service rejected the request.')
+        data = json.loads(response.read(65536))
+    finally:
+        connection.close()
+    if data.get('success') is not True:
+        raise ValueError('Geolocation lookup did not succeed.')
+    latitude, longitude = data['latitude'], data['longitude']
+    if (type(latitude) not in (int, float) or type(longitude) not in (int, float)
+            or not math.isfinite(latitude) or not math.isfinite(longitude)
+            or not -90 <= latitude <= 90 or not -180 <= longitude <= 180):
+        raise ValueError('Invalid geolocation coordinates.')
+    timezone = data['timezone']['id']
+    ZoneInfo(timezone)
+    ip = str(ipaddress.ip_address(data['ip']))
+    label = ', '.join(str(data.get(key) or '') for key in ('city', 'region', 'country'))
+    label = ' '.join(label.split())
+    return dict(ip=ip, latitude=latitude, longitude=longitude, timezone=timezone, label=label)
+
+
+def identifier_options(avd, env):
+    avd_home = Path(env.get('ANDROID_AVD_HOME') or Path.home() / '.android/avd')
+    avd_dir = avd_home / (avd + '.avd')
+    registration = avd_home / (avd + '.ini')
+    if registration.exists():
+        for line in registration.read_text().splitlines():
+            if line.startswith('path='):
+                avd_dir = Path(line[5:])
+                break
+    manifest = avd_dir / 's25-identifiers.json'
+    if not manifest.exists():
+        return []
+    identity = json.loads(manifest.read_text())
+    if identity['avd'] != avd or not (Path(identity['private_emulator']) / 'qemu').is_dir():
+        raise ValueError('Missing private emulator engine or mismatched identifiers')
+    options = ['-qemu-top-dir', identity['private_emulator'], '-android-serialno', identity['serial']]
+    if (avd_dir / 's25-system/data/misc/modem_simulator/iccprofile_for_sim0.xml').is_file():
+        options += ['-ramdisk', str(avd_dir / 's25-system/ramdisk.img')]
+    if 'network' in identity:
+        # Older manifests contained dns=, which this emulator rejects. libslirp
+        # computes the DNS address from net= without that unsupported option.
+        radio_options = ','.join(p for p in identity['network']['radio_options'].split(',') if not p.startswith('dns='))
+        wifi_options = ','.join(p for p in identity['network']['wifi_options'].split(',') if not p.startswith('dns='))
+        options += ['-network-user-mode-options', radio_options,
+                    '-wifi-user-mode-options', wifi_options,
+                    '-qemu', '-global', 'virtio-net-device.mac=' + identity['cellular_mac']]
+    return options
 
 
 async def relay_connection(reader, writer, upstream):
@@ -105,8 +176,12 @@ async def launch(command, env, upstream):
         lambda r, w: relay_connection(r, w, upstream), '127.0.0.1', 0)
     port = server.sockets[0].getsockname()[1]
     async with server:
+        proxy_args = ['-http-proxy', f'http://127.0.0.1:{port}']
+        # Emulator flags must precede the QEMU passthrough delimiter.
+        boundary = command.index('-qemu') if '-qemu' in command else len(command)
+        command = command[:boundary] + proxy_args + command[boundary:]
         process = await asyncio.create_subprocess_exec(
-            *command, '-http-proxy', f'http://127.0.0.1:{port}', env=env)
+            *command, env=env)
         try:
             return await process.wait()
         finally:
@@ -121,6 +196,7 @@ def main():
     parser.add_argument('--proxy-file')
     parser.add_argument('--no-proxy', action='store_true')
     parser.add_argument('--resolve', action='store_true', help='Print URL for the setup script; contains credentials.')
+    parser.add_argument('--location', action='store_true', help='Look up exit GPS coordinates and time zone through the proxy; print JSON.')
     parser.add_argument('--avd', help='Launch an existing AVD with the host proxy.')
     args, extra = parser.parse_known_args()
     try:
@@ -131,6 +207,14 @@ def main():
         if extra:
             parser.error('Unexpected arguments.')
         print(proxy)
+        return
+    if args.location:
+        if extra:
+            parser.error('Unexpected arguments.')
+        try:
+            print(json.dumps(locate(proxy)))
+        except (OSError, ValueError, KeyError, TypeError, http.client.HTTPException):
+            parser.exit(2, 'Proxy location lookup failed. Check proxy connectivity, credentials, and geolocation service availability.\n')
         return
     if not args.avd:
         parser.error('--avd is required to launch an emulator.')
@@ -143,10 +227,30 @@ def main():
     sdk = Path(env.get('ANDROID_SDK_ROOT') or env.get('ANDROID_HOME') or Path.home() / 'Library/Android/sdk')
     command = [str(sdk / 'emulator/emulator'), '-avd', args.avd,
                '-no-snapshot-load', '-no-snapshot-save']
+    try:
+        identity_args = identifier_options(args.avd, env)
+    except (OSError, ValueError, KeyError, TypeError):
+        parser.exit(2, 'Could not load this AVD’s identifiers and private emulator engine.\n')
+    if identity_args and any(option in extra for option in ('-qemu-top-dir', '-android-serialno', '-ramdisk',
+                                                           '-network-user-mode-options', '-wifi-user-mode-options', '-qemu')):
+        parser.error('This AVD uses its reserved serial and private engine; conflicting overrides are not allowed.')
+    qemu_args = []
+    if '-qemu' in identity_args:
+        boundary = identity_args.index('-qemu')
+        qemu_args, identity_args = identity_args[boundary:], identity_args[:boundary]
+    command += identity_args
+    if '-ramdisk' in identity_args:
+        ramdisk = Path(identity_args[identity_args.index('-ramdisk') + 1])
+        # rootAVD patches AVD/ramdisk.img. Refresh the private launch copy on
+        # each cold start so the modem source location and patched image agree.
+        try:
+            shutil.copy2(ramdisk.parent.parent / 'ramdisk.img', ramdisk)
+        except OSError:
+            parser.exit(2, 'Could not stage the private launch ramdisk.\n')
     if '-http-proxy' in extra:
         parser.error('Use --proxy or --proxy-file instead of -http-proxy.')
     print('Launching with host proxy enabled.' if proxy else 'Launching without a host proxy.', flush=True)
-    return asyncio.run(launch(command + extra, env, proxy))
+    return asyncio.run(launch(command + extra + qemu_args, env, proxy))
 
 
 if __name__ == '__main__':

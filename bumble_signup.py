@@ -398,7 +398,8 @@ class Signup:
 
     def phone(self):
         self.phone_details()
-        self.click(rid='prefix_layout')
+        self.fill(0, self.profile['phone'])
+        self.click('Continue')
 
     def allow_location(self):
         s = self.read()
@@ -418,8 +419,6 @@ class Signup:
 
     def phone_details(self):
         # Called only from phone entry/country selection after the app is open.
-        if 'country' not in self.profile:
-            self.profile['country'] = ask('Country name in Bumble country selector', 'United States')
         while 'phone' not in self.profile:
             number = re.sub(r'[ ()-]', '', ask('National phone number (without country code)', secret=True))
             if re.fullmatch(r'\d{5,15}', number):
@@ -429,10 +428,11 @@ class Signup:
 
     def country(self):
         self.phone_details()
-        self.fill(0, self.profile['country'])
+        country = self.profile.get('country', 'United States')
+        self.fill(0, country)
         time.sleep(1)
         s = self.read()
-        matches = [n for n in s.nodes if n.get('content-desc', '').startswith(self.profile['country'] + ' country code ')]
+        matches = [n for n in s.nodes if n.get('content-desc', '').startswith(country + ' country code ')]
         if len(matches) != 1:
             raise RuntimeError('Country selector did not return one matching country')
         self.tap(matches[0])

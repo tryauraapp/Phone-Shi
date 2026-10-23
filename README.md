@@ -24,22 +24,27 @@ SDK components used by the scripts:
 - `system-images;android-35;google_apis_playstore;arm64-v8a`.
 - Build tools `36.0.0`.
 - An Android platform `android.jar` for building the checker. Its build script
-  defaults to `$SDK/platforms/android-37.0/android.jar`; set `ANDROID_JAR` to
-  your installed platform jar if needed.
+  prefers `$SDK/platforms/android-35/android.jar`, falling back to the newest
+  installed numeric API 35+ platform. Set `ANDROID_JAR` to override it explicitly.
 
 SDK lookup order is `ANDROID_SDK_ROOT`, `ANDROID_HOME`, then
 `$HOME/Library/Android/sdk`. Export the tools before following the examples:
 
 ```sh
 export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
-export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/emulator:$PATH"
 ```
 
 Install the required image and tools through Android Studio's SDK Manager or
 its `sdkmanager` CLI:
 
+For the CLI, install **Android SDK Command-line Tools (latest)** in SDK
+Manager's **SDK Tools** tab first. Accept the licenses with
+`sdkmanager --licenses` on the destination Mac.
+
 ```sh
-sdkmanager 'platform-tools' 'emulator' 'build-tools;36.0.0' \
+sdkmanager 'platform-tools' 'emulator' 'build-tools;36.0.0' 'platforms;android-35' \
   'system-images;android-35;google_apis_playstore;arm64-v8a'
 ```
 
@@ -48,6 +53,53 @@ and four CPU cores. Setup looks for rootAVD at `$HOME/Downloads/rootAVD` and
 offers to clone `https://github.com/galihlasahido/rootAVD.git` when absent.
 Override its location with `ROOTAVD_DIR` and its source with `ROOTAVD_REPO`.
 This external dependency and any downloads it performs need network access.
+
+## Another Mac / device missing in Android Studio
+
+Clone this repository on an **Apple Silicon Mac**, install the prerequisites
+above, and use the SDK location shown in Android Studio's **Settings > Android
+SDK**. A clone contains the scripts, not existing virtual phones, app sessions,
+SDK images, signing keys, proxy credentials or personal media.
+
+Start with the read-only doctor:
+
+```sh
+python3 mac_avd_doctor.py
+```
+
+It checks SDK tools and lists registrations and unregistered `.avd` directories
+in the standard and environment-selected Android locations. A terminal can
+inherit `ANDROID_AVD_HOME` while Android Studio launched from the Dock does not;
+that mismatch can make a valid phone disappear from Device Manager.
+
+For an existing phone, diagnose and register it in Studio's usual directory:
+
+```sh
+python3 mac_avd_doctor.py --avd YOUR_AVD_NAME
+python3 mac_avd_doctor.py --avd YOUR_AVD_NAME \
+  --avd-dir /absolute/path/YOUR_AVD_NAME.avd --register
+```
+
+Registration writes `~/.android/avd/YOUR_AVD_NAME.ini`, backing up an existing
+pointer before repair. It preserves device data and refuses to replace a name
+that points to another existing device. Restart Android Studio and open
+**Tools > Device Manager > Virtual**. For a deliberately customized Studio
+environment, pass `--studio-avd-home PATH`; pass `--sdk PATH` to diagnose its SDK.
+Exit status `0` means discovery checks passed, `1` means checks need attention,
+and `2` means invalid inputs or a command/read/write failure. A registration can
+be repaired successfully while other checks still return `1`.
+
+If there is no existing `.avd` directory on the new Mac, build the checker and
+create a new phone using the instructions below. **Do not reuse the name of an
+existing phone to repair discovery.** Use the repository launcher for these lab
+phones; Android Studio's Play button omits their private engine/proxy options.
+
+Copying a lab phone from another Mac needs more than registration: private
+engines have SDK symlinks and the identifier manifest contains a host path.
+The doctor reports missing images, host media paths, engine paths and broken
+SDK links; it does not rewrite engines or migrate account sessions. Create a
+fresh phone on the new Mac for the supported workflow. Keep old AVDs and local
+identifier registries backed up privately. See [detailed troubleshooting](SETUP.md#device-not-found-on-another-mac).
 
 ## Fresh clone: prepare local inputs
 
@@ -65,7 +117,8 @@ the original workstation. Supply the following where needed:
 | Local input | How it is used |
 | --- | --- |
 | `.local/emulator-proxy` | Default host proxy; absent means direct networking. |
-| APK/XAPK files beside the setup script | Automatically installed; alternatively pass `--app PATH` repeatedly. |
+| Google account | Interactive Google Play sign-in installs Bumble; credentials are prompted privately and not saved. |
+| Optional APK/XAPK files | Extra apps only when explicitly passed with `--app PATH`; files beside the script are not automatically installed. |
 | `bumble-signup/photos/` | At least four JPG/JPEG/PNG/WebP/HEIC photos for the signup helper. Four distinct files are sampled. |
 | `bumble-signup/camera/phone-video.mp4` | Optional host recording; automatically selected as the front camera when present. |
 
@@ -123,9 +176,14 @@ Run the wizard:
 It proposes a fresh `Galaxy_S25_DATE_RANDOM` name and asks for resources and,
 when signup is enabled, profile name/gender. Existing AVD names and backup
 directories are rejected. Setup creates the AVD, patches its private ramdisk,
-completes Magisk setup, applies the lab profile, installs requested apps,
+completes Magisk setup, applies the lab profile, signs into Google Play and
+installs/opens Bumble (plus any explicitly requested local apps),
 configures fixtures and mount isolation, runs the checker, and opens signup
 when Bumble is installed and a terminal is attached.
+
+Google sign-in selects personal use and skips optional recovery and address
+entry. Google security checks remain manual. Non-interactive runs print a
+Google Play resume command. `--no-play-store` skips only the Google Play step.
 
 For a device-only run without the optional app or signup:
 
@@ -230,6 +288,7 @@ loopback socket. A restricted sandbox may need that network permission.
 | `setup_galaxy_s25_avd.sh`, `setup_options.sh` | Creation, prompts, validation and orchestration. |
 | `galaxy_s25_avd_lab.sh` | Existing-device identity profile, inventory, status and restore actions. |
 | `emulator_proxy.py` | Proxy validation, host relay, and existing-AVD launcher. |
+| `mac_avd_doctor.py` | Read-only Mac/SDK discovery diagnostics and explicit, backed-up AVD registration repair. |
 | `setup_*.py`, `prepare_modem_config.py` | Root/UI/network setup and private modem configs. |
 | `device_*.sh`, `generate_lab_profile.py`, `emulator_signal_sim.py` | Boot services, per-device telemetry and host signal controller. |
 | `build_file_aliases.py`, `patch_sensor_labels.py`, `provision_file_profiles.sh`, `graphics-profile/` | Validated overlays and graphics-label build sources. |
