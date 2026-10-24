@@ -221,6 +221,35 @@ This uses the current local proxy file. Changing the file requires a full
 emulator restart; an Android-only `adb reboot` retains the existing host relay.
 Keep the launch terminal/process alive while using the phone.
 
+Proxy launches append redacted JSON lines to `.local/proxy-diagnostics.jsonl`
+(owner-only permissions). Override the location with `--diagnostics-file PATH`.
+Events use opaque connection IDs and report UTC time, TCP/CONNECT timings,
+upstream CONNECT status codes, transfer byte counts, and fixed error categories.
+For example, an upstream `407` is recorded as `status_code: 407` even though the
+emulator receives a generic `502`. Timeout stages distinguish `client_headers`,
+`upstream_tcp`, and `upstream_connect`; transfer failures use `tunnel`.
+No destination names, request URLs, headers, credentials, payloads, or exception
+messages are recorded. Encrypted origin HTTP responses remain invisible to the
+relay: a CONNECT `200` does not prove that a CAPTCHA image downloaded.
+Restart the full host emulator process to load relay code changes; an Android
+guest reboot alone keeps the old relay. Diagnostic files append until removed
+or rotated by the operator. Diagnostic write errors do not stop the relay.
+
+If setup stops at shell authorization (step 7), retain the phone and run its
+bounded permission helper after Android finishes booting:
+
+```sh
+python3 setup_su.py --serial emulator-5554 --avd YOUR_AVD_NAME \
+  --output .local/shell-diagnostics --timeout 180
+```
+
+The helper verifies the AVD identity, opens Magisk, and distinguishes a grant,
+denial, timeout, or device disconnect. Each root request has a device-side
+35-second timeout and a host-side limit. A stalled request saves screenshots,
+UI XML, process state, and Magisk logs before one manager restart and retry.
+Diagnostics have their own bounded capture time. A successful helper verifies
+UID 0; it does not automatically resume the remaining creation stages.
+
 To verify routing, open an HTTPS public-IP lookup in the guest browser and
 compare it with the expected proxy exit. `adb -s SERIAL shell settings get
 global http_proxy` should remain unset (`null`) when only this host proxy is
@@ -233,12 +262,37 @@ python3 bumble_signup.py --serial emulator-5554 --avd YOUR_AVD_NAME \
   --output .local/signup-status --profile-name Alex --profile-gender Woman
 ```
 
+Signup is fail-closed. The creation workflow writes
+`setup/setup-complete.json` only after all required setup artifacts exist, the
+checker reports zero red flags with the expected cellular/root-isolation
+evidence, and the live phone passes its AVD, boot, ARM64 and Galaxy S25 checks.
+Each signup helper verifies that certificate, its immutable artifact hashes,
+the installed app, working shell root and that app's Magisk isolation before it
+can begin. This permits a non-interactive phone build to finish before the app
+is installed, but never permits signup in that pending state.
+Deleting or changing certified evidence, using another AVD, or running an app
+that was not certified blocks signup. Read-only POF screen observation remains
+available without the certificate.
+
 Use the serial from `adb devices` and confirm the name with
 `adb -s SERIAL emu avd name`. Existing app data is retained. Phone and SMS inputs
 are hidden terminal prompts and held in memory. `/quit` or Ctrl-C stops signup.
 Unknown screens pause for manual handling. The default endpoint is **Open
 camera**; selfie capture and submission remain manual. No swipes or messages
 are automated. See [signup behavior](bumble-signup/README.md).
+
+To build a fresh phone with Plenty of Fish instead, select the POF path:
+
+```sh
+./setup_galaxy_s25_avd.sh --pof-signup
+```
+
+This installs the official `com.pof.android` package from Google Play, adds it
+to the root-isolation configuration, and starts the guarded screen recorder.
+It can apply explicitly authorized notification and foreground-location
+permissions, then pauses for direct review at profile choices, terms,
+credentials, SMS, photos, CAPTCHA, and identity checks. See the
+[recorded POF flow](pof-signup/README.md).
 
 The optional signal controller stops when the emulator disconnects. To restart
 it after a later launch, use the per-device JSON produced during setup:
@@ -274,6 +328,12 @@ python3 emulator_signal_sim.py --avd YOUR_AVD_NAME \
 
 ```sh
 python3 -m unittest discover -s tests -v
+```
+
+Swap one phone's camera clip (closes and relaunches that phone only):
+
+```sh
+python3 swap_camera_video.py --avd NAME --video /path/new.mp4 --restart
 for script in *.sh device-checker/*.sh graphics-profile/*.sh; do
   bash -n "$script" || exit 1
 done
@@ -290,10 +350,12 @@ loopback socket. A restricted sandbox may need that network permission.
 | `emulator_proxy.py` | Proxy validation, host relay, and existing-AVD launcher. |
 | `mac_avd_doctor.py` | Read-only Mac/SDK discovery diagnostics and explicit, backed-up AVD registration repair. |
 | `setup_*.py`, `prepare_modem_config.py` | Root/UI/network setup and private modem configs. |
+| `phone_setup_guard.py` | Fail-closed setup certificate creation and pre-signup verification. |
 | `device_*.sh`, `generate_lab_profile.py`, `emulator_signal_sim.py` | Boot services, per-device telemetry and host signal controller. |
 | `build_file_aliases.py`, `patch_sensor_labels.py`, `provision_file_profiles.sh`, `graphics-profile/` | Validated overlays and graphics-label build sources. |
 | `device-checker/` | Offline Android diagnostic app source/build instructions. |
 | `bumble_signup.py`, `bumble-signup/*.json` | Interactive onboarding and prompt/default data. |
+| `pof_signup.py`, `pof-signup/` | Sanitized POF screen mapping and guarded permission/capture helper. |
 | `tests/`, `fixtures/` | Regression tests, sanitized UI evidence and metadata policy. |
 | `REPORT.md` | Historical lab observations, not a claim about a newly created device. |
 

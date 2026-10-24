@@ -1,0 +1,17 @@
+{
+  "description": "Saved S25 geometry; legacy H264 verified on a9690b26, VP9 native environment plus Camera2 reader verified on 10f841ca",
+  "compatibility": {
+    "backend": "native_environment",
+    "codec": "vp9",
+    "container": "webm",
+    "preview_method": "camera2_reader",
+    "background_enabled": false
+  },
+  "preview_size": [1080, 1440],
+  "canvas_size": [1280, 960],
+  "packing": "left",
+  "vertical_anchor": 0.40625,
+  "fit": "cover",
+  "animation_setting": "virtualscene\\tv_animation=true",
+  "source_sha256": "5655f1d07a82863b3be030fc0aa7ffb4168cec4bf0b737196ec9a90466428037"
+}

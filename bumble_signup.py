@@ -14,6 +14,8 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
+from phone_setup_guard import verify_phone_setup
+
 from setup_ui import adb_call, read_ui
 from setup_network import ensure_network
 
@@ -283,6 +285,10 @@ class Signup:
 
     def step(self, s):
         p = self.profile
+        if s.has('Protecting your account') and s.has('Please solve this puzzle'):
+            return 'manual CAPTCHA', lambda: self.manual('Complete the CAPTCHA yourself on the device, then resume')
+        if s.has('Please reload the challenge to try again'):
+            return 'challenge loading error', lambda: self.manual('Challenge images failed to load; inspect the connection and retry manually')
         if s.has('using Bumble offline'):
             return 'offline connection', lambda: ensure_network(self.serial)
         if s.has('Loading') or not any(n.get('text') or n.get('content-desc') for n in s.nodes):
@@ -797,6 +803,7 @@ def main():
             print('Bumble requires a terminal for credentials and the SMS code. Resume with the command in SETUP.md.')
             status = 'awaiting_terminal'
             return 2
+        verify_phone_setup(args.serial, args.avd, PACKAGE)
         profile = collect_profile(args.profile_name, args.profile_gender)
         status = Signup(args.serial, args.avd, args.output, profile).run()
         print('Bumble signup complete. ' + ('Ready for your selfie; continue with Open camera in the emulator.'

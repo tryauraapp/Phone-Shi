@@ -19,6 +19,47 @@ def account_screen(password=False, heading='Sign in - Google Accounts', forgot=T
 
 
 class GooglePlaySignInTests(unittest.TestCase):
+    def test_account_protection_puzzle_requires_manual_completion(self):
+        xml = '<hierarchy><node text="Protecting your account"/><node text="Please solve this puzzle so we know you are a real person"/><node text="Start Puzzle"/></hierarchy>'
+        self.assertEqual(google.sign_in_action(xml), 'captcha')
+
+    def test_store_welcome_get_started_is_recognized(self):
+        xml = '<hierarchy><node text="Welcome to Google Play"/><node text="Get started"/></hierarchy>'
+        self.assertEqual(google.sign_in_action(xml), 'store-welcome')
+
+    def test_optional_store_recommendations_are_recognized(self):
+        xml = '<hierarchy><node text="What are you into?"/><node text="Choose apps categories"/><node text="Skip"/></hierarchy>'
+        self.assertEqual(google.sign_in_action(xml), 'store-recommendations')
+
+    def test_observed_overlays_take_priority_over_background_listing(self):
+        for filename, action in [('complete-account-setup.xml', 'account-setup'),
+                                 ('play-pass-offer.xml', 'play-pass'),
+                                 ('google-terms.xml', 'agreement')]:
+            xml = (Path(__file__).parent / 'fixtures/google-play' / filename).read_text()
+            self.assertEqual(google.sign_in_action(xml), action)
+
+    def test_terms_require_manual_acceptance_and_never_tap_agree(self):
+        xml = (Path(__file__).parent / 'fixtures/google-play/google-terms.xml').read_text()
+        done = '<hierarchy><node text="Bumble Dating App: Meet &amp; Date"/></hierarchy>'
+        with patch.object(google.sys.stdin, 'isatty', return_value=True), \
+                patch.object(google, 'read_ui', side_effect=[xml, done]), \
+                patch('builtins.input', return_value='') as prompt, \
+                patch.object(google.subprocess, 'run') as run, \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center)
+        prompt.assert_called_once()
+        run.assert_not_called()
+
+    def test_phone_signin_can_finish_while_private_terminal_prompt_waits(self):
+        done = '<hierarchy><node text="Bumble Dating App: Meet &amp; Date"/></hierarchy>'
+        with patch.object(google.sys.stdin, 'isatty', return_value=True), \
+                patch.object(google.getpass, 'getpass', return_value=''), \
+                patch.object(google, 'read_ui', side_effect=[account_screen(), done, done]), \
+                patch.object(google.subprocess, 'run') as run, \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center)
+        run.assert_not_called()
+
     def test_observed_carrier_discovery_screen_is_skipped(self):
         fixture = Path(__file__).parent / 'fixtures/google-play/sign-in-with-ease.xml'
         xml = fixture.read_text()

@@ -18,6 +18,18 @@ def screen(filename):
 
 
 class BumbleTests(unittest.TestCase):
+    def test_observed_captcha_and_image_error_pause_without_tapping(self):
+        screens = [('<node text="Protecting your account"/><node text="Please solve this puzzle so we know you are a real person"/>', 'manual CAPTCHA'),
+                   ('<node text="Something went wrong. Please reload the challenge to try again."/>', 'challenge loading error')]
+        for xml, expected in screens:
+            runner = self.runner()
+            with patch.object(runner, 'manual') as manual, patch.object(runner, 'click') as click:
+                state, action = runner.step(b.Screen('<hierarchy>' + xml + '</hierarchy>'))
+                self.assertEqual(state, expected)
+                action()
+                manual.assert_called_once()
+                click.assert_not_called()
+
     def runner(self, **profile):
         return b.Signup('emulator-test', 'Test', Path('/tmp'), dict(verification=True, **profile))
 

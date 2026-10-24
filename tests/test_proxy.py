@@ -4,6 +4,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import json
+import io
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,6 +32,13 @@ class ProxyTests(unittest.TestCase):
                     self.assertEqual((avd / 's25-system/ramdisk.img').read_bytes(), contents)
                     arguments = launch.call_args.args[0]
                     self.assertEqual(arguments[arguments.index('-ramdisk') + 1], str(avd / 's25-system/ramdisk.img'))
+
+    def test_lab_phones_and_video_cameras_disable_host_native_sync(self):
+        flag = ['-feature', '-GLAsyncSwap']
+        self.assertEqual(proxy.graphics_sync_options(['-android-serialno', 'S25'], None, []), flag)
+        self.assertEqual(proxy.graphics_sync_options([], Path('/v/front.webm'), []), flag)
+        self.assertEqual(proxy.graphics_sync_options([], None, []), [])
+        self.assertEqual(proxy.graphics_sync_options(['-android-serialno', 'S25'], None, ['-feature', 'GLAsyncSwap']), [])
 
     def test_location_uses_authenticated_proxy_tunnel_and_validates_result(self):
         data = dict(success=True, ip='192.0.2.8', latitude=42.3314,
@@ -72,13 +80,37 @@ class ProxyTests(unittest.TestCase):
         with patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--proxy',
                                 '192.0.2.1:8080:user:password']), patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:
             proxy.main()
-        command, env, upstream = launch.call_args.args
+        command, env, upstream, diagnostic = launch.call_args.args
         self.assertEqual(upstream, 'http://user:password@192.0.2.1:8080')
         self.assertNotIn('password', ' '.join(command))
         self.assertNotIn('http_proxy', env)
         self.assertNotIn('HTTP_PROXY', env)
         self.assertEqual(env['no_grpc_proxy'], 'localhost,127.0.0.1,::1')
         self.assertIn('Test', command)
+        self.assertIsInstance(diagnostic, proxy.RelayDiagnostics)
+
+    def test_diagnostic_file_is_private_jsonl(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'relay.jsonl'
+            log = proxy.RelayDiagnostics(path)
+            log({'event': 'connection_started', 'connection_id': 'test'})
+            log.close()
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(json.loads(path.read_text())['event'], 'connection_started')
+
+    def test_diagnostic_disk_failure_does_not_interrupt_relay(self):
+        with tempfile.TemporaryDirectory() as folder:
+            log = proxy.RelayDiagnostics(Path(folder) / 'relay.jsonl')
+            output = io.StringIO()
+            try:
+                with patch.object(proxy.os, 'write', side_effect=OSError('sensitive-path')), \
+                        patch.object(proxy.sys, 'stderr', output):
+                    log({'event': 'test'})
+                    log({'event': 'test'})
+            finally:
+                log.close()
+            self.assertEqual(output.getvalue().count('write failed'), 1)
+            self.assertNotIn('sensitive-path', output.getvalue())
 
     def test_setup_preview_redacts_credentials_and_can_disable_default(self):
         root = Path(__file__).resolve().parents[1]
@@ -96,6 +128,55 @@ class ProxyTests(unittest.TestCase):
 
 
 class RelayTests(unittest.IsolatedAsyncioTestCase):
+    async def test_upstream_rejection_is_logged_without_headers_or_secrets(self):
+        reader = AsyncMock()
+        reader.readuntil.return_value = b'CONNECT example.com:443 HTTP/1.1\r\nProxy-Authorization: private-client-secret\r\n\r\n'
+        writer = MagicMock(drain=AsyncMock())
+        remote_reader = AsyncMock()
+        remote_reader.readuntil.return_value = b'HTTP/1.1 407 private-reason-token\r\nSecret: response-secret\r\n\r\n'
+        remote = MagicMock(drain=AsyncMock())
+        events = []
+        with patch.object(proxy.asyncio, 'open_connection', new_callable=AsyncMock,
+                          return_value=(remote_reader, remote)):
+            await proxy.relay_connection(reader, writer, 'http://user:upstream-secret@host:80', events.append)
+        response = next(e for e in events if e['event'] == 'upstream_connect_response')
+        self.assertEqual(response['status_code'], 407)
+        self.assertEqual(events[-1]['reason'], 'upstream_rejected')
+        encoded = json.dumps(events)
+        for secret in ('private-client-secret', 'private-reason-token', 'response-secret',
+                       'upstream-secret', 'example.com'):
+            self.assertNotIn(secret, encoded)
+        self.assertIn(b'502 Bad Gateway', writer.write.call_args.args[0])
+
+    async def test_connection_timeout_has_stage_and_no_exception_message(self):
+        reader = AsyncMock()
+        reader.readuntil.return_value = b'CONNECT example.com:443 HTTP/1.1\r\n\r\n'
+        writer = MagicMock(drain=AsyncMock())
+        events = []
+        with patch.object(proxy.asyncio, 'open_connection', new_callable=AsyncMock,
+                          side_effect=TimeoutError('secret-token-url')):
+            await proxy.relay_connection(reader, writer, 'http://user:secret@host:80', events.append)
+        failed = next(e for e in events if e['event'] == 'connection_failed')
+        self.assertEqual(failed['stage'], 'upstream_tcp')
+        self.assertEqual(failed['reason'], 'timeout')
+        self.assertIn('phase_ms', failed)
+        self.assertNotIn('secret', json.dumps(events))
+
+    async def test_connect_response_timeout_is_distinguished_from_tcp_timeout(self):
+        reader = AsyncMock()
+        reader.readuntil.return_value = b'CONNECT example.com:443 HTTP/1.1\r\n\r\n'
+        writer = MagicMock(drain=AsyncMock())
+        remote_reader = AsyncMock()
+        remote_reader.readuntil.side_effect = TimeoutError('private-data')
+        remote = MagicMock(drain=AsyncMock())
+        events = []
+        with patch.object(proxy.asyncio, 'open_connection', new_callable=AsyncMock,
+                          return_value=(remote_reader, remote)):
+            await proxy.relay_connection(reader, writer, 'http://host:80', events.append)
+        failed = next(e for e in events if e['event'] == 'connection_failed')
+        self.assertEqual(failed['stage'], 'upstream_connect')
+        self.assertNotIn('private-data', json.dumps(events))
+
     async def test_proxy_option_precedes_qemu_passthrough(self):
         server = MagicMock()
         server.sockets[0].getsockname.return_value = ('127.0.0.1', 23456)
@@ -111,6 +192,7 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_http10_success_normalized_and_tunnel_preserves_bytes(self):
         observed = []
+        events = []
 
         async def upstream(reader, writer):
             observed.append(await reader.readuntil(b'\r\n\r\n'))
@@ -124,7 +206,7 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         remote = await asyncio.start_server(upstream, '127.0.0.1', 0)
         remote_port = remote.sockets[0].getsockname()[1]
         relay = await asyncio.start_server(lambda r, w: proxy.relay_connection(
-            r, w, f'http://user:password@127.0.0.1:{remote_port}'), '127.0.0.1', 0)
+            r, w, f'http://user:password@127.0.0.1:{remote_port}', events.append), '127.0.0.1', 0)
         async with remote, relay:
             reader, writer = await asyncio.open_connection('127.0.0.1', relay.sockets[0].getsockname()[1])
             writer.write(b'CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n')
@@ -137,3 +219,6 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
             writer.close()
             await writer.wait_closed()
         self.assertIn(b'Proxy-Authorization: Basic dXNlcjpwYXNzd29yZA==', observed[0])
+        self.assertTrue(any(e['event'] == 'tunnel_established' for e in events))
+        self.assertNotIn('password', json.dumps(events))
+        self.assertNotIn('example.com', json.dumps(events))

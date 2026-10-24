@@ -30,3 +30,6 @@ __pycache__/
 /bumble-signup/prompt-picker/*
 !/bumble-signup/prompt-picker/README.md
 !/bumble-signup/prompt-picker/catalog.json
+/pof-signup/*
+!/pof-signup/README.md
+!/pof-signup/observed-flow.json

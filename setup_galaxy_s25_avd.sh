@@ -8,8 +8,8 @@
 #   4. Grants Magisk su to the adb shell and completes Magisk's "additional setup"
 #   5. Runs galaxy_s25_avd_lab.sh: baseline inventory → Galaxy S25 profile → reboot
 #      verification → post-change inventory
-#   6. Signs into Google Play and installs/opens Bumble after the profile is active
-#   7. Isolates Bumble's Magisk mounts and installs per-device battery simulation
+#   6. Signs into Google Play and installs/opens the selected dating app
+#   7. Isolates the selected app's Magisk mounts and installs battery simulation
 #
 #  Usage: ./setup_galaxy_s25_avd.sh [--name NAME] [--app FILE]... [--no-apps]
 #                                   [--vsync 120] [--ram MB] [--cores N] [--yes]
@@ -25,10 +25,12 @@
 #    --keep-file-paths / --keep-graphics-labels  skip the corresponding fixtures
 #    --no-checker  skip installing and running Device Red Flags
 #    --app      optional extra .xapk or .apk to install (repeatable)
-#    --no-apps  skip extra apps and the Google Play Bumble installation
-#    --no-play-store  skip the Google Play Bumble installation only
+#    --no-apps  skip extra apps and the Google Play dating-app installation
+#    --no-play-store  skip Google Play installation only
 #    --no-bumble-signup  skip the final interactive Bumble signup step
 #    --bumble-signup  enable the final signup step (default)
+#    --pof-signup  install POF and enable its guarded capture/resume step
+#    --no-pof-signup  skip the POF capture/resume step
 #    --profile-name NAME  Bumble first name (separate from the AVD name)
 #    --profile-gender Woman|Man|Nonbinary  Bumble profile gender
 #    --front-camera SOURCE  emulated|webcamN|none|imagefile:PATH|videofile:PATH
@@ -65,6 +67,8 @@ YES=0
 APPS=()
 NO_APPS=0
 PLAY_STORE_BUMBLE=1
+PLAY_STORE_POF=0
+PLAY_STORE_DISABLED=0
 FINGERPRINT=
 BATTERY_SIM=1
 SIGNAL_SIM=1
@@ -78,6 +82,7 @@ CHECKER=1
 INTERACTIVE=-1
 DRY_RUN=0
 BUMBLE_SIGNUP=1
+POF_SIGNUP=0
 BUMBLE_PROFILE_NAME=
 BUMBLE_PROFILE_GENDER=
 FRONT_CAMERA=emulated
@@ -112,9 +117,17 @@ while (($#)); do
     --vsync) VSYNC=${2:?}; shift ;;
     --app) APPS+=("${2:?}"); shift ;;
     --no-apps) NO_APPS=1 ;;
-    --no-play-store) PLAY_STORE_BUMBLE=0 ;;
+    --no-play-store) PLAY_STORE_DISABLED=1; PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0 ;;
     --no-bumble-signup) BUMBLE_SIGNUP=0 ;;
-    --bumble-signup) BUMBLE_SIGNUP=1 ;;
+    --bumble-signup)
+      BUMBLE_SIGNUP=1; POF_SIGNUP=0
+      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_BUMBLE=1; PLAY_STORE_POF=0; fi
+      ;;
+    --pof-signup)
+      POF_SIGNUP=1; BUMBLE_SIGNUP=0; ROOT_PACKAGES+=(com.pof.android)
+      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_POF=1; PLAY_STORE_BUMBLE=0; fi
+      ;;
+    --no-pof-signup) POF_SIGNUP=0 ;;
     --profile-name) BUMBLE_PROFILE_NAME=${2:?}; shift ;;
     --profile-gender) BUMBLE_PROFILE_GENDER=${2:?}; shift ;;
     --front-camera) FRONT_CAMERA=${2:?}; shift ;;
@@ -144,9 +157,14 @@ while (($#)); do
   shift
 done
 
+# A Bumble-specific camera recording must never be carried into a POF run.
+if ((POF_SIGNUP)) && [[ "$FRONT_CAMERA" == "videofile:$SCRIPT_DIR/bumble-signup/camera/phone-video.mp4" ]]; then
+  FRONT_CAMERA=emulated
+fi
+
 source "$SCRIPT_DIR/setup_options.sh" || exit 1
 configure_setup || exit 2
-(( !NO_APPS )) || PLAY_STORE_BUMBLE=0
+if ((NO_APPS)); then PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; fi
 HOST_PROXY=$(python3 -I "$SCRIPT_DIR/emulator_proxy.py" --resolve ${PROXY_OPTIONS[@]+"${PROXY_OPTIONS[@]}"}) || exit 2
 if ((DRY_RUN)); then
   printf 'AVD name: %s\nAndroid Studio display name: %s\nRAM: %s MB\nCores: %s\nRefresh rate: %s\n' "$NAME" "${NAME//_/ }" "$RAM_MB" "$CORES" "${VSYNC:-emulator default}"
@@ -172,10 +190,19 @@ if ((DRY_RUN)); then
   else
     printf 'Bumble installation: Google Play skipped\n'
   fi
+  if ((PLAY_STORE_POF)); then
+    printf 'POF installation: Google Play → private sign-in → Install → wait → Open\n'
+  else
+    printf 'POF installation: Google Play skipped\n'
+  fi
   printf 'Local app bundles: explicit --app files only; no automatic APK/XAPK installation\n'
   printf 'Bumble signup: %s (requires installed Bumble and a terminal; prompts after device setup)\n' "$BUMBLE_SIGNUP"
   if ((BUMBLE_SIGNUP)); then
     printf 'Bumble profile name: %s\nBumble profile gender: %s\nBumble photos: 4 random images from the supplied photo pool (video excluded)\nPhone number: requested only at Bumble phone entry\n' "${BUMBLE_PROFILE_NAME:-ask at signup}" "${BUMBLE_PROFILE_GENDER:-ask at signup}"
+  fi
+  printf 'POF guarded signup capture: %s (permissions only; profile, terms, SMS and photos pause)\n' "$POF_SIGNUP"
+  if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
+    printf 'Signup safeguard: required setup artifacts, checker result and live phone state must certify first\n'
   fi
   exit 0
 fi
@@ -197,7 +224,7 @@ else
   B= DIM= RED= GRN= YEL= BLU= MAG= CYN= X=
 fi
 STEP=0
-STEPS=$((12 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + BATTERY_SIM + ROOT_ISOLATION + SIGNAL_SIM + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + BUMBLE_SIGNUP))
+STEPS=$((12 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + BATTERY_SIM + ROOT_ISOLATION + SIGNAL_SIM + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + (BUMBLE_SIGNUP || POF_SIGNUP) + BUMBLE_SIGNUP + POF_SIGNUP))
 log()  { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"; }
 step() { STEP=$((STEP+1)); printf '\n %s[%d/%d]%s %s%s%s\n' "$CYN" "$STEP" "$STEPS" "$X" "$B" "$*" "$X"; log "== $*"; }
 info() { printf '   %s›%s %s\n' "$CYN" "$X" "$*"; log "info: $*"; }
@@ -338,17 +365,22 @@ case "$FRONT_CAMERA" in
     [[ "$camera_help" == *"${FRONT_CAMERA%%:*}:"* ]] || die "Installed emulator does not support ${FRONT_CAMERA%%:*} camera input."
     ;;
 esac
+if [[ "$FRONT_CAMERA" == videofile:* ]]; then
+  command -v ffmpeg >/dev/null || die "ffmpeg is required to prepare native camera playback."
+  [[ -f "$SCRIPT_DIR/configure_video_camera.py" ]] || die "Missing configure_video_camera.py helper."
+fi
 if [[ "$FRONT_CAMERA" == webcam* ]]; then
   camera_sources=$(emulator -webcam-list 2>>"$LOG") || die "Could not list host cameras."
   [[ "$camera_sources" == *"'$FRONT_CAMERA'"* ]] || die "$FRONT_CAMERA is unavailable. Run emulator -webcam-list to choose a live camera."
 fi
 command -v python3 >/dev/null || die "python3 is required for app bundles and per-device profiles."
 [[ -x "$LAB" ]] || die "galaxy_s25_avd_lab.sh must sit next to this script ($SCRIPT_DIR)."
-for f in setup_su.py setup_magisk.py setup_ui.py generate_lab_profile.py device_battery_service.sh device_root_isolation.sh emulator_signal_sim.py device_qemu_profile.sh patch_sensor_labels.py build_file_aliases.py device_prepare_file_aliases.sh device_file_aliases.sh provision_file_profiles.sh; do
+for f in setup_su.py setup_magisk.py setup_ui.py phone_setup_guard.py generate_lab_profile.py device_battery_service.sh device_root_isolation.sh emulator_signal_sim.py device_qemu_profile.sh patch_sensor_labels.py build_file_aliases.py device_prepare_file_aliases.sh device_file_aliases.sh provision_file_profiles.sh; do
   [[ -f "$SCRIPT_DIR/$f" ]] || die "Missing helper $SCRIPT_DIR/$f"
 done
 (( !BUMBLE_SIGNUP )) || [[ -f "$SCRIPT_DIR/bumble_signup.py" ]] || die 'Missing bumble_signup.py helper.'
-if ((PLAY_STORE_BUMBLE)); then
+(( !POF_SIGNUP )) || [[ -f "$SCRIPT_DIR/pof_signup.py" ]] || die 'Missing pof_signup.py helper.'
+if ((PLAY_STORE_BUMBLE || PLAY_STORE_POF)); then
   for f in play_store_install.py google_play_signin.py; do
     [[ -f "$SCRIPT_DIR/$f" ]] || die "Missing $f helper."
   done
@@ -483,6 +515,12 @@ tag.ids=google_apis_playstore
 target=android-35
 vm.heapSize=228
 EOF
+if [[ "$FRONT_CAMERA" == videofile:* ]]; then
+  python3 -I "$SCRIPT_DIR/configure_video_camera.py" --avd "$NAME" \
+    --video "${FRONT_CAMERA#videofile:}" --preview-size 1080x1440 >>"$LOG" 2>&1 || \
+    die "Could not prepare the native video camera profile (see $LOG)."
+  FRONT_CAMERA=environment
+fi
 "$SDK/emulator/mksdcard" 512M "$AVD_DIR/sdcard.img" >>"$LOG" 2>&1 || warn "mksdcard failed (AVD will run without an SD card)."
 python3 -I "$SCRIPT_DIR/device_identifiers.py" --avd-dir "$AVD_DIR" --name "$NAME" --sdk "$SDK" \
   --registry "$SCRIPT_DIR/.local/device-identifiers.sqlite3" >>"$LOG" 2>&1 || die "Could not prepare unique device identifiers and private emulator engines."
@@ -565,65 +603,26 @@ ok "Magisk daemon running from the patched ramdisk"
 adb -s "$SERIAL" shell pm grant "$MAGISK_PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1
 ok "Magisk app installed"
 
-# UI automation through uiautomator. Magisk's own superuser *prompt* is hidden from
-# uiautomator (tapjacking protection), so we never tap it — only normal app screens.
-ui_xml() { python3 -I "$SCRIPT_DIR/setup_ui.py" --serial "$SERIAL" 2>>"$LOG"; }
-ui_has() { [[ "$(ui_xml)" == *"$1"* ]]; }
-center() { sed -nE 's/.*bounds="\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]".*/\1 \2 \3 \4/p' | head -n1 | awk '{print int(($1+$3)/2), int(($2+$4)/2)}'; }
-ui_tap() { # ui_tap 'attr="value"' → taps the first matching node
-  local c; c=$(ui_xml | grep -F "$1" | center)
-  [[ -n "$c" ]] || return 1
-  adb -s "$SERIAL" shell input tap $c
-}
-open_magisk() {
-  adb -s "$SERIAL" shell 'input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard' >/dev/null 2>&1
-  adb -s "$SERIAL" shell monkey -p "$MAGISK_PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1
-}
 boot_id() { adb -s "$SERIAL" shell cat /proc/sys/kernel/random/boot_id 2>/dev/null | tr -d '\r'; }
 new_boot() { local b; b=$(boot_id); [[ -n "$b" && "$b" != "$OLD_BOOT" ]] && booted; }
 env_ready() { [[ "$(adb -s "$SERIAL" shell 'for f in /system_ext/bin/su /system/bin/su /system/xbin/su; do [ -e $f ] && echo yes; done' 2>/dev/null)" == *yes* ]]; }
 
 if env_ready; then
-  ok "Magisk environment already complete"
+  ok "Magisk installed (su executable present; shell authorization pending)"
 else
   info "Accepting Magisk's one-time \"Requires additional setup\" in the app (it reboots by itself)…"
   python3 -I "$SCRIPT_DIR/setup_magisk.py" --serial "$SERIAL" --avd "$NAME" --timeout 240 2>>"$LOG" ||
     die "Magisk additional setup did not complete. See $LOG for confirmation and reboot errors."
-  ok "Magisk environment complete (su mounted)"
+  ok "Magisk installed after reboot (shell authorization pending)"
 fi
 
 # ── 5. su for the adb shell ─────────────────────────────────────────────────
 step "Granting Magisk superuser to the adb shell"
-su_works() { [[ "$(adb -s "$SERIAL" shell 'su -c "id -u"' 2>/dev/null | tr -d '\r')" == 0 ]]; }
-# Finds the switch on the same row as "[SharedUID] Shell" in Magisk → Superuser: "x y checked".
-shell_switch() {
-  ui_xml | awk '
-    function mid(s,  a) { match(s, /bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"/)
-      split(substr(s, RSTART, RLENGTH), a, /[^0-9]+/); MX = int((a[2] + a[4]) / 2); MY = int((a[3] + a[5]) / 2) }
-    /text="\[SharedUID\] Shell"/ { mid($0); ty = MY }
-    /class="android.widget.Switch"/ { mid($0); n++; X[n] = MX; Y[n] = MY; C[n] = ($0 ~ /checked="true"/) }
-    END { for (i = 1; i <= n; i++) if (ty && Y[i] - ty < 120 && ty - Y[i] < 120) { print X[i], Y[i], C[i]; exit } }'
-}
-if su_works; then
-  ok "Already granted"
-else
-  info "Requesting su once so Magisk lists the shell (the on-screen prompt is left to time out)…"
-  adb -s "$SERIAL" shell 'su -c true' >/dev/null 2>&1 &
-  req=$!
-  for i in $(seq 30); do kill -0 $req 2>/dev/null || break; sleep 1; done
-  kill $req 2>/dev/null
-  info "Enabling Shell in Magisk → Superuser…"
-  open_magisk
-  spin_wait "Opening Superuser tab" 30 ui_tap 'content-desc="Superuser"' || die "Couldn't open Magisk's Superuser tab."
-  sw_ready() { SW=$(shell_switch); [[ -n "$SW" ]]; }
-  spin_wait "Looking for the Shell entry" 30 sw_ready || die "Shell entry not listed in Magisk → Superuser."
-  set -- $SW
-  [[ "$3" == 1 ]] || adb -s "$SERIAL" shell input tap "$1" "$2"
-  # Rapid retries keep Magisk's old denial cached even after the UI grant.
-  python3 -I "$SCRIPT_DIR/setup_su.py" --serial "$SERIAL" --timeout 30 2>>"$LOG" ||
-    die "Shell root was not granted after spaced verification attempts. Check Magisk → Superuser and $LOG."
-  adb -s "$SERIAL" shell input keyevent KEYCODE_HOME >/dev/null 2>&1
-fi
+su_works() { python3 -I "$SCRIPT_DIR/setup_su.py" --serial "$SERIAL" --avd "$NAME" --verify-only --timeout 42 >>"$LOG" 2>&1; }
+python3 -I "$SCRIPT_DIR/setup_su.py" --serial "$SERIAL" --avd "$NAME" \
+  --output "$WORK/shell-diagnostics" --timeout 180 2>>"$LOG" ||
+  die "Shell authorization failed; review $WORK/shell-diagnostics and $LOG. Phone retained."
+adb -s "$SERIAL" shell input keyevent KEYCODE_HOME >/dev/null 2>&1
 ok "adb shell → su → uid 0 ($(dsu 'cat /proc/self/attr/current' | tr -d '\0'))"
 [[ "$(dsu '[ -x /data/adb/magisk/busybox ] && echo y')" == y ]] || die "/data/adb/magisk is incomplete."
 ok "Magisk $(adb -s "$SERIAL" shell magisk -v | tr -d '\r') fully installed (/data/adb/magisk present)"
@@ -786,6 +785,19 @@ if ((PLAY_STORE_BUMBLE)); then
   fi
 fi
 
+if ((PLAY_STORE_POF)); then
+  step "Installing and opening Plenty of Fish from Google Play"
+  if ((INTERACTIVE == 0)) || [[ ! -t 0 ]]; then
+    warn "Google Play sign-in awaits an interactive terminal; no local POF bundle will be installed."
+    printf '   Resume Google Play: python3 %q --serial %q --avd %q --app pof --sign-in\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
+  else
+    # Google credentials and manual verification input must never enter the setup log.
+    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --app pof --sign-in ||
+      die "Google Play POF installation paused or failed; the phone is retained. Resume with play_store_install.py --app pof --sign-in."
+    ok "Plenty of Fish installed by Google Play and opened"
+  fi
+fi
+
 if ((ROOT_ISOLATION)); then
   step "Configuring Magisk mount isolation for installed test apps"
   isolated_packages=0
@@ -915,6 +927,17 @@ PY
   fi
 fi
 
+if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
+  step "Certifying the full phone setup before app signup"
+  GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK")
+  ((BUMBLE_SIGNUP)) && GUARD_ARGS+=(--package com.bumble.app)
+  ((POF_SIGNUP)) && GUARD_ARGS+=(--package com.pof.android)
+  python3 "$SCRIPT_DIR/phone_setup_guard.py" "${GUARD_ARGS[@]}" >>"$LOG" 2>&1 ||
+    die "Full phone setup verification failed; app signup is blocked. Review $LOG."
+  ok "Full setup certificate created; the signup helper will re-check app-specific state"
+  info "Certificate: $WORK/setup-complete.json"
+fi
+
 if ((BUMBLE_SIGNUP)); then
   step "Bumble signup"
   BUMBLE_ARGS=(--serial "$SERIAL" --avd "$NAME" --output "$WORK/bumble-signup")
@@ -938,6 +961,29 @@ if ((BUMBLE_SIGNUP)); then
   fi
   printf '   Resume Bumble: python3 %q ' "$SCRIPT_DIR/bumble_signup.py"
   printf '%q ' "${BUMBLE_ARGS[@]}"
+  printf '\n'
+fi
+
+if ((POF_SIGNUP)); then
+  step "Plenty of Fish signup capture"
+  POF_ARGS=(--serial "$SERIAL" --avd "$NAME" --output "$WORK/pof-signup")
+  if ! adb -s "$SERIAL" shell pm path com.pof.android 2>/dev/null | grep -q '^package:'; then
+    warn "POF is not installed; capture skipped. Install it and run the helper below."
+  elif ((INTERACTIVE == 0)) || [[ ! -t 0 ]]; then
+    warn "POF profile choices and sensitive steps require direct review; device setup is complete."
+  else
+    python3 "$SCRIPT_DIR/pof_signup.py" "${POF_ARGS[@]}" --run-signup --allow-notifications --allow-location
+    pof_rc=$?
+    if ((pof_rc == 2)); then
+      warn "POF capture paused at a profile or sensitive/manual boundary, as designed."
+    elif ((pof_rc != 0)); then
+      die "POF capture failed; phone setup is retained. Resume with pof_signup.py."
+    else
+      ok "POF capture completed at its guarded endpoint."
+    fi
+  fi
+  printf '   Resume POF: python3 %q ' "$SCRIPT_DIR/pof_signup.py"
+  printf '%q ' "${POF_ARGS[@]}"
   printf '\n'
 fi
 

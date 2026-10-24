@@ -1,5 +1,6 @@
 import subprocess
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import play_store_install as store
@@ -13,6 +14,80 @@ def listing(label, enabled='true'):
 
 
 class PlayStoreTests(unittest.TestCase):
+    def test_pof_targets_official_package(self):
+        commands = []
+
+        def run(command, **kwargs):
+            commands.append(command)
+            args = command[3:]
+            output = ''
+            if args[:4] == ['shell', 'pm', 'list', 'packages']:
+                output = ('package:com.pof.android installer=com.android.vending\n'
+                          if '-i' in args else 'package:com.pof.android\n')
+            elif args[:3] == ['shell', 'dumpsys', 'package']:
+                output = ' versionName=5.19.0\n'
+            elif args[:3] == ['shell', 'dumpsys', 'activity']:
+                output = 'topResumedActivity: com.pof.android/.MainActivity'
+            return subprocess.CompletedProcess(command, 0, output, '')
+
+        screen = listing('Open').replace('Bumble Dating App', 'Plenty of Fish')
+        with patch('sys.argv', ['play_store_install.py', '--serial', 'test', '--app', 'pof']), \
+                patch.object(store.subprocess, 'run', side_effect=run), \
+                patch.object(store, 'read_ui', return_value=screen), \
+                patch.object(store.time, 'sleep'):
+            self.assertEqual(store.main(), 0)
+        self.assertTrue(any('market://details?id=com.pof.android' in command for command in commands))
+
+    def test_tinder_targets_correct_package_and_recognizes_first_launch_permission(self):
+        commands = []
+        def run(command, **kwargs):
+            commands.append(command)
+            args = command[3:]
+            output = ''
+            if args[:4] == ['shell', 'pm', 'list', 'packages']:
+                output = 'package:com.tinder' + (' installer=com.android.vending' if '-i' in args else '')
+            elif args[:3] == ['shell', 'dumpsys', 'package']:
+                output = ' versionName=17.39.0\n'
+            elif args[:3] == ['shell', 'dumpsys', 'activity']:
+                output = 'topResumedActivity: com.google.android.permissioncontroller/.GrantPermissionsActivity'
+            return subprocess.CompletedProcess(command, 0, output, '')
+        screens = [listing('Open').replace('Bumble Dating App', 'Tinder'),
+                   '<hierarchy><node text="Allow Tinder to send you notifications?"/></hierarchy>']
+        with patch('sys.argv', ['play_store_install.py', '--serial', 'test', '--app', 'tinder']), \
+                patch.object(store.subprocess, 'run', side_effect=run), \
+                patch.object(store, 'read_ui', side_effect=screens), \
+                patch.object(store.time, 'sleep'):
+            self.assertEqual(store.main(), 0)
+        self.assertTrue(any('market://details?id=com.tinder' in command for command in commands))
+        self.assertNotIn('com.bumble.app', repr(commands))
+
+    def test_account_review_and_play_pass_then_verified_open(self):
+        fixture = Path(__file__).parent / 'fixtures/google-play'
+        screens = [(fixture / name).read_text() for name in
+                   ('complete-account-setup.xml', 'play-pass-offer.xml')]
+        taps = []
+        def run(command, **kwargs):
+            args = command[3:]
+            output = ''
+            if args[:4] == ['shell', 'pm', 'list', 'packages']:
+                output = ('package:com.bumble.app installer=com.android.vending\n'
+                          if '-i' in args else 'package:com.bumble.app\n')
+            elif args == ['shell', 'dumpsys', 'package', store.PACKAGE]:
+                output = ' versionName=5.489.0\n'
+            elif args == ['shell', 'dumpsys', 'activity', 'activities']:
+                output = 'topResumedActivity: com.bumble.app/.MainActivity'
+            elif args[:3] == ['shell', 'input', 'tap']:
+                taps.append(tuple(map(int, args[3:])))
+            return subprocess.CompletedProcess(command, 0, output, '')
+        with patch('sys.argv', ['play_store_install.py', '--serial', 'test']), \
+                patch.object(store.subprocess, 'run', side_effect=run), \
+                patch.object(store, 'read_ui', side_effect=screens + [listing('Open')]), \
+                patch.object(store.time, 'sleep'):
+            self.assertEqual(store.main(), 0)
+        self.assertEqual(taps, [store.button_center(screens[0], 'Continue'),
+                                store.button_center(screens[1], 'Not now'), (50, 50)])
+        self.assertNotIn(store.button_center(screens[1], 'Check it out'), taps)
+
     def test_disabled_open_control_is_not_actionable(self):
         self.assertIsNone(store.button_center(listing('Open', 'false'), 'Open'))
 

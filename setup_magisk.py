@@ -40,7 +40,7 @@ def complete_setup(serial, avd, timeout=240, call=adb_call, read=read_ui,
                 raise RuntimeError('Emulator identity changed; refusing to continue')
             if completed == '1' and environment == 'ready':
                 if boot != initial or taps == 0:
-                    print('Magisk environment complete; Android boot and su mount verified.', flush=True)
+                    print('Magisk installed; Android boot and su mount verified. Shell authorization pending.', flush=True)
                     return
             if completed != '1' or boot != initial:
                 pause(2)

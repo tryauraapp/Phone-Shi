@@ -1,0 +1,7 @@
+<!-- Sanitized representative hierarchy from the observed screenshot; not a raw UI dump. -->
+<hierarchy>
+  <node package="com.android.vending" text="Bumble Dating App: Meet &amp; Date"/>
+  <node package="com.android.vending" text="Complete account setup"/>
+  <node package="com.android.vending" text="Review your account to continue installing apps on Google Play"/>
+  <node package="com.android.vending" text="Continue" enabled="true" clickable="true" bounds="[60,2140][1020,2250]"/>
+</hierarchy>

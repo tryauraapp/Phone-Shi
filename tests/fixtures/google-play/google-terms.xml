@@ -1,0 +1,7 @@
+<!-- Sanitized representative hierarchy from the observed screenshot; account identifiers omitted. -->
+<hierarchy>
+  <node package="com.google.android.gms" text="Welcome"/>
+  <node package="com.google.android.gms" text="Google Terms of Service"/>
+  <node package="com.google.android.gms" text="Google Play Terms of Service"/>
+  <node package="com.google.android.gms" text="I agree" enabled="true" clickable="true" bounds="[760,1380][1020,1480]"/>
+</hierarchy>

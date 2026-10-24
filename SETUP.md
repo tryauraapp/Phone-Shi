@@ -180,10 +180,22 @@ ramdisk, telemetry seed, vendor-library backups, generated fixtures and logs.
 Defaults include Samsung build identity and display settings, late-boot QEMU
 properties, sensor labels, randomized battery with ongoing drift, randomized
 modem signal, vendor file aliases/config visibility, QEMU metadata visibility,
-graphics vendor/renderer labels, Magisk isolation for Bumble and Device Red
+graphics vendor/renderer labels, Magisk isolation for the selected signup app and Device Red
 Flags, and removal of the manager APK. The local checker is installed, opened
 and its report saved under the phone's `setup/checker-report.json` backup path.
 Reports retain remaining findings; a clean scan is not assumed.
+
+Signup cannot start merely because the earlier commands ran in order. After the
+final checker pass, setup creates `setup/setup-complete.json` only when the
+required setup evidence is present, the checker has zero red flags and confirms
+the expected LTE/root-isolation result, and the live device still matches its
+AVD and ARM64 Galaxy S25 profile. Bumble, Tinder and POF revalidate the
+certificate, immutable evidence hashes, live state, installed signup package,
+shell root and app-specific Magisk denylist before their full signup runner
+begins. A non-interactive setup can therefore certify the phone before later
+app installation, while the helper remains blocked until package isolation is
+also ready. A missing, stale or app-mismatched certificate stops the helper
+with no signup tap.
 
 After the final device check, setup launches the interactive Bumble signup
 wizard when Bumble is installed. It reuses the profile name and gender chosen
@@ -304,10 +316,17 @@ Create a new emulator with this recording preselected by running
 The file stays on the Mac; it is not pushed into Android storage.
 
 The script checks that the file exists, is readable and nonempty, and that the
-installed emulator advertises this camera mode. Relative paths are converted
-to absolute paths. Keep the file at that location: its path is saved with the
-AVD and passed to every setup launch. Paths with spaces are supported when quoted.
+installed emulator advertises this camera mode. For a video source, it now runs
+`configure_video_camera.py` before first boot: the original is retained inside
+the AVD, and proportionally cropped VP9/WebM plus native environment/animation
+settings are saved per phone. This requires `ffmpeg`; the current S25 camera
+profile is portrait 3:4. Keep the AVD's `camera/` directory in place. Relative
+input paths and quoted paths with spaces are supported. Use the saved native
+camera recipe below to configure a different measured preview aspect ratio.
 The recording is a camera source, separate from the four profile-photo uploads.
+For the verified looping, crop-to-fill setup on an existing S25 emulator, see
+[the saved native camera recipe](VIDEO_CAMERA.md). It records the required
+animation setting, preview-ratio rule, and renderer-specific framing profile.
 It is configured before launch; it does not switch an already-running camera.
 The signup helper still stops at **Open camera** for you to review the feed and
 complete capture and submission. This does not guarantee Bumble accepts the
