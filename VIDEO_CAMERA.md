@@ -24,6 +24,18 @@ python3 configure_video_camera.py --avd YOUR_AVD \
 python3 emulator_proxy.py --avd YOUR_AVD --check-video-camera --camera-viewer
 ```
 
+For a new phone, pass its own recording directly to the one-shot setup. This
+runs the same configurator before the first boot and works for every selected
+app, including POF:
+
+```sh
+./setup_galaxy_s25_avd.sh --pof-signup \
+  --camera-video "/absolute/path/to/this-phone.mp4"
+```
+
+`--front-camera videofile:PATH` remains supported for compatibility. A selected
+video is never replaced with the synthetic `emulated` camera based on the app.
+
 For the selected `10f841ca` phone, double-click or run
 `launch_s25_video_camera.command`. It uses the saved per-phone media/profile;
 it no longer overrides both cameras with the shared raw recording. Re-running

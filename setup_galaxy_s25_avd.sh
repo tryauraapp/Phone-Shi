@@ -8,8 +8,9 @@
 #   4. Grants Magisk su to the adb shell and completes Magisk's "additional setup"
 #   5. Runs galaxy_s25_avd_lab.sh: baseline inventory → Galaxy S25 profile → reboot
 #      verification → post-change inventory
-#   6. Signs into Google Play and installs/opens the selected dating app
-#   7. Isolates the selected app's Magisk mounts and installs battery simulation
+#   6. Starts battery, signal and proxy-derived GPS before app installation
+#   7. Installs the selected dating app without opening it, isolates its Magisk
+#      mounts, reboots, verifies the full phone, then launches only for signup
 #
 #  Usage: ./setup_galaxy_s25_avd.sh [--name NAME] [--app FILE]... [--no-apps]
 #                                   [--vsync 120] [--ram MB] [--cores N] [--yes]
@@ -21,6 +22,7 @@
 #    --interactive / --non-interactive  enable/disable the setup prompts
 #    --dry-run  show the resolved setup without creating or changing a device
 #    --proxy VALUE / --proxy-file PATH  host-side HTTP proxy (host:port:user:password or URL)
+#    --nodemaven-key-file PATH  provision a unique verified US/T-Mobile mobile proxy
 #    --no-proxy  disable the default .local/emulator-proxy for this run
 #    --keep-file-paths / --keep-graphics-labels  skip the corresponding fixtures
 #    --no-checker  skip installing and running Device Red Flags
@@ -33,6 +35,7 @@
 #    --no-pof-signup  skip the POF capture/resume step
 #    --profile-name NAME  Bumble first name (separate from the AVD name)
 #    --profile-gender Woman|Man|Nonbinary  Bumble profile gender
+#    --camera-video PATH  per-phone front-camera video (prepared before first boot)
 #    --front-camera SOURCE  emulated|webcamN|none|imagefile:PATH|videofile:PATH
 #    --vsync    launch with a 120 Hz guest display mode
 #    --yes      don't ask for confirmation
@@ -87,6 +90,9 @@ BUMBLE_PROFILE_NAME=
 BUMBLE_PROFILE_GENDER=
 FRONT_CAMERA=emulated
 PROXY_OPTIONS=()
+NODEMAVEN_KEY_FILE=
+NODEMAVEN_KEY_EXPLICIT=0
+NODEMAVEN_AUTO=0
 # Direct-network fallback only; proxy runs resolve these before creating the AVD.
 # Emulator console geo fix takes longitude before latitude.
 LOCATION_LATITUDE=40.7357
@@ -130,9 +136,11 @@ while (($#)); do
     --no-pof-signup) POF_SIGNUP=0 ;;
     --profile-name) BUMBLE_PROFILE_NAME=${2:?}; shift ;;
     --profile-gender) BUMBLE_PROFILE_GENDER=${2:?}; shift ;;
+    --camera-video) FRONT_CAMERA="videofile:${2:?}"; shift ;;
     --front-camera) FRONT_CAMERA=${2:?}; shift ;;
     --proxy) PROXY_OPTIONS+=(--proxy "${2:?}"); shift ;;
     --proxy-file) PROXY_OPTIONS+=(--proxy-file "${2:?}"); shift ;;
+    --nodemaven-key-file) NODEMAVEN_KEY_FILE=${2:?}; NODEMAVEN_KEY_EXPLICIT=1; shift ;;
     --no-proxy) PROXY_OPTIONS+=(--no-proxy) ;;
     --ram) RAM_MB=${2:?}; shift ;;
     --cores) CORES=${2:?}; shift ;;
@@ -157,15 +165,30 @@ while (($#)); do
   shift
 done
 
-# A Bumble-specific camera recording must never be carried into a POF run.
-if ((POF_SIGNUP)) && [[ "$FRONT_CAMERA" == "videofile:$SCRIPT_DIR/bumble-signup/camera/phone-video.mp4" ]]; then
-  FRONT_CAMERA=emulated
-fi
-
 source "$SCRIPT_DIR/setup_options.sh" || exit 1
 configure_setup || exit 2
 if ((NO_APPS)); then PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; fi
-HOST_PROXY=$(python3 -I "$SCRIPT_DIR/emulator_proxy.py" --resolve ${PROXY_OPTIONS[@]+"${PROXY_OPTIONS[@]}"}) || exit 2
+WORK="$HOME/galaxy_s25_avd_backups/$NAME/setup"
+if [[ -z "$NODEMAVEN_KEY_FILE" ]]; then
+  NODEMAVEN_KEY_FILE="$SCRIPT_DIR/.local/nodemaven-api-key"
+fi
+if ((NODEMAVEN_KEY_EXPLICIT)) && [[ ! -s "$NODEMAVEN_KEY_FILE" ]]; then
+  printf 'NodeMaven API key file is missing or empty: %s\n' "$NODEMAVEN_KEY_FILE" >&2
+  exit 2
+fi
+if ((${#PROXY_OPTIONS[@]} == 0)) && [[ -s "$NODEMAVEN_KEY_FILE" ]]; then
+  NODEMAVEN_AUTO=1
+  if ((DRY_RUN)); then
+    HOST_PROXY=nodemaven-dry-run
+  else
+    python3 -I "$SCRIPT_DIR/nodemaven_proxy.py" --avd "$NAME" \
+      --key-file "$NODEMAVEN_KEY_FILE" --output "$WORK/nodemaven-proxy" || exit 2
+    PROXY_OPTIONS=(--proxy-file "$WORK/nodemaven-proxy")
+    HOST_PROXY=$(python3 -I "$SCRIPT_DIR/emulator_proxy.py" --resolve "${PROXY_OPTIONS[@]}") || exit 2
+  fi
+else
+  HOST_PROXY=$(python3 -I "$SCRIPT_DIR/emulator_proxy.py" --resolve ${PROXY_OPTIONS[@]+"${PROXY_OPTIONS[@]}"}) || exit 2
+fi
 if ((DRY_RUN)); then
   printf 'AVD name: %s\nAndroid Studio display name: %s\nRAM: %s MB\nCores: %s\nRefresh rate: %s\n' "$NAME" "${NAME//_/ }" "$RAM_MB" "$CORES" "${VSYNC:-emulator default}"
   printf 'Front camera: %s\n' "$FRONT_CAMERA"
@@ -181,17 +204,20 @@ if ((DRY_RUN)); then
   printf 'User-Agent: unique S25 / Android 15 test profile exported; Bumble override not applied\n'
   if [[ -n "$HOST_PROXY" ]]; then
     printf 'Host proxy: enabled (TCP only; Android proxy settings untouched)\n'
+    if ((NODEMAVEN_AUTO)); then
+      printf 'NodeMaven: unique fixed US mobile/T-Mobile session; API verification runs before creation\n'
+    fi
   else
     printf 'Host proxy: disabled\n'
   fi
   printf 'Identity: Samsung Galaxy S25\nBattery: %s\nSignal: %s\nQEMU profile: %s\nSensor labels: %s\nFile aliases: %s\nGraphics labels: %s\nRoot isolation: %s\nChecker: %s\n' "$BATTERY_SIM" "$SIGNAL_SIM" "$QEMU_PROFILE" "$SENSOR_LABELS" "$FILE_ALIASES" "$GRAPHICS_LABELS" "$ROOT_ISOLATION" "$CHECKER"
   if ((PLAY_STORE_BUMBLE)); then
-    printf 'Bumble installation: Google Play → private sign-in → Install → wait → Open\n'
+    printf 'Bumble flow: finish phone → Google Play Install (held closed) → isolate → reboot → verify → first launch\n'
   else
     printf 'Bumble installation: Google Play skipped\n'
   fi
   if ((PLAY_STORE_POF)); then
-    printf 'POF installation: Google Play → private sign-in → Install → wait → Open\n'
+    printf 'POF flow: finish phone → Google Play Install (held closed) → isolate → reboot → verify → first launch\n'
   else
     printf 'POF installation: Google Play skipped\n'
   fi
@@ -208,7 +234,6 @@ if ((DRY_RUN)); then
 fi
 
 AVD_DIR="$AVD_HOME/$NAME.avd"
-WORK="$HOME/galaxy_s25_avd_backups/$NAME/setup"
 LOG="$WORK/setup-$(date +%Y%m%d-%H%M%S).log"
 
 # Local apps are opt-in. Bumble comes from Google Play by default.
@@ -224,7 +249,7 @@ else
   B= DIM= RED= GRN= YEL= BLU= MAG= CYN= X=
 fi
 STEP=0
-STEPS=$((12 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + BATTERY_SIM + ROOT_ISOLATION + SIGNAL_SIM + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + (BUMBLE_SIGNUP || POF_SIGNUP) + BUMBLE_SIGNUP + POF_SIGNUP))
+STEPS=$((17 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + BATTERY_SIM + 2*SIGNAL_SIM + ROOT_ISOLATION + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + (BUMBLE_SIGNUP || POF_SIGNUP) + BUMBLE_SIGNUP + POF_SIGNUP + ROOT_ISOLATION*(2 + SIGNAL_SIM)))
 log()  { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"; }
 step() { STEP=$((STEP+1)); printf '\n %s[%d/%d]%s %s%s%s\n' "$CYN" "$STEP" "$STEPS" "$X" "$B" "$*" "$X"; log "== $*"; }
 info() { printf '   %s›%s %s\n' "$CYN" "$X" "$*"; log "info: $*"; }
@@ -716,6 +741,127 @@ fi
 step "Post-change inventory"
 "$LAB" --avd "$NAME" --action inventory | sed -n '/\[2\/2\]/,$p'
 
+# The phone's runtime profile is active before any dating app is installed.
+# Battery is a persistent Magisk boot service. Signal and GPS are host-side
+# controllers and are restarted after the later isolation reboot.
+battery_runtime_ok() {
+  ((BATTERY_SIM)) || return 0
+  local state level temp actual_level actual_temp
+  state=$(dsu 'cat /data/adb/s25-avd-lab/battery.state 2>/dev/null') || return 1
+  level=$(sed -n 's/^LEVEL=//p' <<<"$state")
+  temp=$(sed -n 's/^TEMP=//p' <<<"$state")
+  [[ "$level" =~ ^[0-9]+$ && "$temp" =~ ^[0-9]+$ ]] || return 1
+  actual_level=$(adb -s "$SERIAL" shell dumpsys battery get level | tr -d '\r')
+  actual_temp=$(adb -s "$SERIAL" shell dumpsys battery get temp | tr -d '\r')
+  [[ "$actual_level" == "$level" && "$actual_temp" == "$temp" ]]
+}
+
+signal_runtime_ok() {
+  ((SIGNAL_SIM)) || return 0
+  python3 -I - "$WORK/profile/radio-state.json" "$NAME" <<'PY' >/dev/null 2>&1
+import json, sys
+p = json.load(open(sys.argv[1]))
+assert p.get('avd') == sys.argv[2] and p.get('tick', 0) >= 1
+PY
+}
+
+location_runtime_ok() {
+  python3 -I - "$WORK/location/location-state.json" "$NAME" "$LOCATION_LATITUDE" "$LOCATION_LONGITUDE" <<'PY' >/dev/null 2>&1
+import json, math, sys
+p = json.load(open(sys.argv[1]))
+assert p.get('avd') == sys.argv[2] and p.get('tick', 0) >= 1
+assert math.isclose(float(p['center_latitude']), float(sys.argv[3]), abs_tol=1e-7)
+assert math.isclose(float(p['center_longitude']), float(sys.argv[4]), abs_tol=1e-7)
+PY
+}
+
+start_signal_runtime() {
+  ((SIGNAL_SIM)) || return 0
+  step "Starting per-device modem signal simulation"
+  python3 -I "$SCRIPT_DIR/emulator_signal_sim.py" --avd "$NAME" --profile "$WORK/profile/device-profile.json" --once >>"$LOG" 2>&1 || die "Signal-console verification failed."
+  python3 -I "$SCRIPT_DIR/emulator_signal_sim.py" --avd "$NAME" --profile "$WORK/profile/device-profile.json" --background >>"$LOG" 2>&1 || die "Signal controller exited; see $WORK/profile/signal.log."
+  ok "Signal controller started; small changes every 15 seconds"
+}
+
+start_location_runtime() {
+  step "Starting bounded GPS movement around the proxy-derived location"
+  python3 -I "$SCRIPT_DIR/emulator_location_sim.py" --avd "$NAME" --output "$WORK/location" \
+    --latitude "$LOCATION_LATITUDE" --longitude "$LOCATION_LONGITUDE" --background >>"$LOG" 2>&1 || die "GPS controller exited; see $WORK/location/location.log."
+  ok "GPS moves 20–30 feet every 3–5 seconds within 1000 feet of the proxy-derived center"
+}
+
+verify_runtime_services() {
+  step "Verifying battery, signal and proxy-derived GPS"
+  spin_wait "Verifying battery service" 30 battery_runtime_ok || die "Battery service did not match its saved state."
+  signal_runtime_ok || die "Signal controller did not produce a valid state for this phone."
+  location_runtime_ok || die "GPS controller did not use this phone's proxy-derived center."
+  ok "Runtime services match this phone: battery, signal and proxy-derived GPS"
+}
+
+wait_host_controller_exit() {
+  local pid=${1:-} label=${2:-controller} i
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  for i in {1..30}; do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+  die "$label did not stop across the isolation reboot."
+}
+
+if ((BATTERY_SIM)); then
+  step "Installing per-device battery simulation"
+  adb -s "$SERIAL" push "$WORK/profile/battery.conf" /data/local/tmp/s25-battery.conf >>"$LOG" 2>&1 || die "Could not copy battery fixture."
+  adb -s "$SERIAL" push "$SCRIPT_DIR/device_battery_service.sh" /data/local/tmp/s25-battery-service.sh >>"$LOG" 2>&1 || die "Could not copy battery service."
+  dsu 'set -e
+mkdir -p /data/adb/s25-avd-lab /data/adb/service.d
+cp /data/local/tmp/s25-battery.conf /data/adb/s25-avd-lab/battery.conf
+chmod 600 /data/adb/s25-avd-lab/battery.conf
+cp /data/local/tmp/s25-battery-service.sh /data/adb/service.d/98-s25-battery.sh
+chmod 755 /data/adb/service.d/98-s25-battery.sh
+rm -f /data/local/tmp/s25-battery.conf /data/local/tmp/s25-battery-service.sh
+sh /data/adb/service.d/98-s25-battery.sh --once' >>"$LOG" 2>&1 || die "Battery service installation failed."
+  expected_level=$(sed -n 's/^LEVEL=//p' "$WORK/profile/battery.conf")
+  expected_temp=$(sed -n 's/^TEMP=//p' "$WORK/profile/battery.conf")
+  actual_level=$(adb -s "$SERIAL" shell dumpsys battery get level | tr -d '\r')
+  actual_temp=$(adb -s "$SERIAL" shell dumpsys battery get temp | tr -d '\r')
+  [[ "$actual_level" == "$expected_level" && "$actual_temp" == "$expected_temp" ]] || die "Battery simulation read-back did not match the fixture."
+  dsu 'sh /data/adb/service.d/98-s25-battery.sh </dev/null >/data/adb/s25-avd-lab/battery.log 2>&1 &' >>"$LOG" 2>&1 || die "Could not start the battery loop."
+  ok "Battery fixture active: ${actual_level}% · $((actual_temp / 10)).$((actual_temp % 10)) °C; temperature updates every five seconds"
+  info "Unique fixture: $WORK/profile/device-profile.json"
+  info "Framework charge counter is simulated; direct BatteryManager/HAL readings may differ."
+  info "Health/wear, voltage and cycle count are not overridden."
+fi
+
+if ((SIGNAL_SIM)); then
+  step "Priming the per-device modem signal profile"
+  python3 -I "$SCRIPT_DIR/emulator_signal_sim.py" --avd "$NAME" --profile "$WORK/profile/device-profile.json" --once >>"$LOG" 2>&1 || die "Signal-console verification failed."
+  ok "Initial modem signal profile applied before the base verification reboot"
+fi
+
+step "Confirming proxy-derived GPS before the base verification reboot"
+set_location
+battery_runtime_ok || die "Battery simulation was not active before the base verification reboot."
+ok "Battery and proxy-derived GPS are active before the base verification reboot"
+
+step "Rebooting and verifying the optimized base phone"
+OLD_BOOT=$(boot_id)
+adb -s "$SERIAL" reboot >>"$LOG" 2>&1 || die "Base verification reboot failed."
+spin_wait "Rebooting optimized base phone" 360 new_boot || die "Android did not finish the base verification reboot."
+verify_cpu_architecture
+ensure_cellular_network
+set_location
+verify_identifiers
+su_works || die "Shell root was not retained after the base verification reboot."
+if ((QEMU_PROFILE)); then
+  spin_wait "Verifying QEMU settings after base reboot" 30 qemu_profile_ok || {
+    dsu 'sh /data/adb/service.d/97-s25-qemu.sh' >>"$LOG" 2>&1 && qemu_profile_ok
+  } || die "QEMU settings were not retained after the base verification reboot."
+fi
+
+start_signal_runtime
+start_location_runtime
+verify_runtime_services
+
 # ── 10. Apps ────────────────────────────────────────────────────────────────
 # .xapk = zip of a base APK + split APKs (+ optional OBB data) described by manifest.json.
 # Splits for CPU ABIs the device doesn't support are skipped; everything else goes into
@@ -773,28 +919,28 @@ if ((${#APPS[@]})); then
 fi
 
 if ((PLAY_STORE_BUMBLE)); then
-  step "Installing and opening Bumble from Google Play"
+  step "Installing Bumble from Google Play without opening it"
   if ((INTERACTIVE == 0)) || [[ ! -t 0 ]]; then
     warn "Google Play sign-in awaits an interactive terminal; local Bumble bundles will not be installed."
-    printf '   Resume Google Play: python3 %q --serial %q --avd %q --sign-in\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
+    printf '   Resume Google Play: python3 %q --serial %q --avd %q --sign-in --install-only\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
   else
     # Google credentials and manual verification input must never enter the setup log.
-    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --sign-in ||
-      die "Google Play installation paused or failed; the phone is retained. Resume with play_store_install.py --sign-in."
-    ok "Bumble installed by Google Play and opened; continuing the existing setup and signup flow"
+    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --sign-in --install-only ||
+      die "Google Play installation paused or failed; the phone is retained. Resume with play_store_install.py --sign-in --install-only."
+    ok "Bumble installed by Google Play and held closed until final verification"
   fi
 fi
 
 if ((PLAY_STORE_POF)); then
-  step "Installing and opening Plenty of Fish from Google Play"
+  step "Installing Plenty of Fish from Google Play without opening it"
   if ((INTERACTIVE == 0)) || [[ ! -t 0 ]]; then
     warn "Google Play sign-in awaits an interactive terminal; no local POF bundle will be installed."
-    printf '   Resume Google Play: python3 %q --serial %q --avd %q --app pof --sign-in\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
+    printf '   Resume Google Play: python3 %q --serial %q --avd %q --app pof --sign-in --install-only\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
   else
     # Google credentials and manual verification input must never enter the setup log.
-    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --app pof --sign-in ||
-      die "Google Play POF installation paused or failed; the phone is retained. Resume with play_store_install.py --app pof --sign-in."
-    ok "Plenty of Fish installed by Google Play and opened"
+    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --app pof --sign-in --install-only ||
+      die "Google Play POF installation paused or failed; the phone is retained. Resume with play_store_install.py --app pof --sign-in --install-only."
+    ok "Plenty of Fish installed by Google Play and held closed until final verification"
   fi
 fi
 
@@ -814,9 +960,21 @@ if ((ROOT_ISOLATION)); then
   adb -s "$SERIAL" shell rm -f /data/local/tmp/s25-root-isolation.sh >>"$LOG" 2>&1
   if ((isolated_packages)); then
     info "Rebooting to activate Zygisk and app mount isolation"
+    old_signal_pid=$(python3 -I - "$WORK/profile/radio-state.json" <<'PY' 2>/dev/null || true
+import json, sys
+print(json.load(open(sys.argv[1])).get('pid', ''))
+PY
+)
+    old_location_pid=$(python3 -I - "$WORK/location/location-state.json" <<'PY' 2>/dev/null || true
+import json, sys
+print(json.load(open(sys.argv[1])).get('pid', ''))
+PY
+)
     OLD_BOOT=$(boot_id)
     adb -s "$SERIAL" reboot >>"$LOG" 2>&1 || die "Isolation activation reboot failed."
     spin_wait "Activating root isolation" 360 new_boot || die "Android did not finish the isolation activation reboot."
+    wait_host_controller_exit "$old_signal_pid" "Signal controller"
+    wait_host_controller_exit "$old_location_pid" "GPS controller"
     verify_cpu_architecture
     ensure_cellular_network
     set_location
@@ -827,52 +985,13 @@ if ((ROOT_ISOLATION)); then
         dsu 'sh /data/adb/service.d/97-s25-qemu.sh' >>"$LOG" 2>&1 && qemu_profile_ok
       } || die "QEMU settings were not retained after isolation reboot."
     fi
+    start_signal_runtime
+    start_location_runtime
+    verify_runtime_services
     ok "Isolation activated; shell root retained"
   fi
   warn "Root remains installed. DenyList does not hide all root or emulator signals."
 fi
-
-if ((BATTERY_SIM)); then
-  step "Installing per-device battery simulation"
-  adb -s "$SERIAL" push "$WORK/profile/battery.conf" /data/local/tmp/s25-battery.conf >>"$LOG" 2>&1 || die "Could not copy battery fixture."
-  adb -s "$SERIAL" push "$SCRIPT_DIR/device_battery_service.sh" /data/local/tmp/s25-battery-service.sh >>"$LOG" 2>&1 || die "Could not copy battery service."
-  dsu 'set -e
-mkdir -p /data/adb/s25-avd-lab /data/adb/service.d
-cp /data/local/tmp/s25-battery.conf /data/adb/s25-avd-lab/battery.conf
-chmod 600 /data/adb/s25-avd-lab/battery.conf
-cp /data/local/tmp/s25-battery-service.sh /data/adb/service.d/98-s25-battery.sh
-chmod 755 /data/adb/service.d/98-s25-battery.sh
-rm -f /data/local/tmp/s25-battery.conf /data/local/tmp/s25-battery-service.sh
-sh /data/adb/service.d/98-s25-battery.sh --once' >>"$LOG" 2>&1 || die "Battery service installation failed."
-  expected_level=$(sed -n 's/^LEVEL=//p' "$WORK/profile/battery.conf")
-  expected_temp=$(sed -n 's/^TEMP=//p' "$WORK/profile/battery.conf")
-  actual_level=$(adb -s "$SERIAL" shell dumpsys battery get level | tr -d '\r')
-  actual_temp=$(adb -s "$SERIAL" shell dumpsys battery get temp | tr -d '\r')
-  [[ "$actual_level" == "$expected_level" && "$actual_temp" == "$expected_temp" ]] || die "Battery simulation read-back did not match the fixture."
-  # Start drift only after the initial read-back, so a five-second update cannot
-  # race the verification above on a slow ADB connection.
-  dsu 'sh /data/adb/service.d/98-s25-battery.sh </dev/null >/data/adb/s25-avd-lab/battery.log 2>&1 &' >>"$LOG" 2>&1 || die "Could not start the battery loop."
-  ok "Battery fixture active: ${actual_level}% · $((actual_temp / 10)).$((actual_temp % 10)) °C; temperature updates every five seconds"
-  info "Unique fixture: $WORK/profile/device-profile.json"
-  info "Framework charge counter is simulated; direct BatteryManager/HAL readings may differ."
-  info "Health/wear, voltage and cycle count are not overridden."
-fi
-
-if ((SIGNAL_SIM)); then
-  step "Starting per-device modem signal simulation"
-  python3 -I "$SCRIPT_DIR/emulator_signal_sim.py" --avd "$NAME" --profile "$WORK/profile/device-profile.json" --once >>"$LOG" 2>&1 || die "Signal-console verification failed."
-  python3 -I "$SCRIPT_DIR/emulator_signal_sim.py" --avd "$NAME" --profile "$WORK/profile/device-profile.json" --background >>"$LOG" 2>&1 || die "Signal controller exited; see $WORK/profile/signal.log."
-  ok "Signal controller started; small changes every 15 seconds"
-  info "Controller stops when the emulator disconnects. Restart it after a later launch:"
-  info "python3 '$SCRIPT_DIR/emulator_signal_sim.py' --avd '$NAME' --profile '$WORK/profile/device-profile.json' --background"
-fi
-
-step "Starting bounded GPS movement around the startup location"
-python3 -I "$SCRIPT_DIR/emulator_location_sim.py" --avd "$NAME" --output "$WORK/location" \
-  --latitude "$LOCATION_LATITUDE" --longitude "$LOCATION_LONGITUDE" --background >>"$LOG" 2>&1 || die "GPS controller exited; see $WORK/location/location.log."
-ok "GPS moves 20–30 feet every 3–5 seconds within 1000 feet of the startup center"
-info "Controller stops when the emulator disconnects. Restart after a later launch:"
-printf '   python3 %q --avd %q --output %q --latitude %q --longitude %q --background\n' "$SCRIPT_DIR/emulator_location_sim.py" "$NAME" "$WORK/location" "$LOCATION_LATITUDE" "$LOCATION_LONGITUDE"
 
 if ((ROOT_ISOLATION && !KEEP_MAGISK_APP)); then
   step "Removing the Magisk manager package while retaining the boot daemon"
@@ -930,8 +1049,14 @@ fi
 if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
   step "Certifying the full phone setup before app signup"
   GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK")
-  ((BUMBLE_SIGNUP)) && GUARD_ARGS+=(--package com.bumble.app)
-  ((POF_SIGNUP)) && GUARD_ARGS+=(--package com.pof.android)
+  if ((BUMBLE_SIGNUP)); then
+    GUARD_ARGS+=(--package com.bumble.app)
+    adb -s "$SERIAL" shell am force-stop com.bumble.app >>"$LOG" 2>&1
+  fi
+  if ((POF_SIGNUP)); then
+    GUARD_ARGS+=(--package com.pof.android)
+    adb -s "$SERIAL" shell am force-stop com.pof.android >>"$LOG" 2>&1
+  fi
   python3 "$SCRIPT_DIR/phone_setup_guard.py" "${GUARD_ARGS[@]}" >>"$LOG" 2>&1 ||
     die "Full phone setup verification failed; app signup is blocked. Review $LOG."
   ok "Full setup certificate created; the signup helper will re-check app-specific state"
@@ -990,6 +1115,6 @@ fi
 printf '\n %s%s  DONE%s  %s is a rooted Galaxy S25 test device (%s)\n' "$B" "$GRN" "$X" "$NAME" "$SERIAL"
 printf '   Status any time:  %s"%s" --avd %s --action status%s\n' "$CYN" "$LAB" "$NAME" "$X"
 printf '   Launch later:     python3 %q --avd %q\n' "$SCRIPT_DIR/emulator_proxy.py" "$NAME"
-[[ -z "$HOST_PROXY" ]] || info 'Host TCP proxy active. Reuse the same proxy options when relaunching; UDP is not proxied.'
+[[ -z "$HOST_PROXY" ]] || info 'Host TCP proxy active. This phone’s saved proxy is selected automatically when relaunching; UDP is not proxied.'
 printf '   Backups & logs:   %s\n\n' "$HOME/galaxy_s25_avd_backups/$NAME"
 warn "No Play Integrity pass, physical-device identity or locked bootloader is claimed."

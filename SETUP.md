@@ -75,6 +75,12 @@ Run from this directory:
 ```
 
 Host-side proxy: setup automatically reads `.local/emulator-proxy` when present.
+If `.local/nodemaven-api-key` exists and no explicit proxy option is supplied,
+setup instead provisions a separate no-rotation US Mobile/T-Mobile NodeMaven session
+for the new phone, verifies the targeted exit through NodeMaven, and stores the
+private result in that phone's backup. Future `emulator_proxy.py --avd NAME`
+launches select the same per-phone proxy automatically. The API key and saved
+proxy files must remain owner-readable only and are never copied into the AVD.
 This local, Git-ignored file contains one line: `host:port:user:password` or
 `http://user:password@host:port`. Keep its permissions at `600`. The configured
 proxy is reached through a loopback relay on the Mac on every setup launch;
@@ -400,15 +406,17 @@ Create unattended with a fresh name, or optionally specify an explicit name:
 ./setup_galaxy_s25_avd.sh --name My_Test_Phone --ram 6144 --cores 6 --vsync 120 --yes
 ```
 
-By default, Bumble is installed from Google Play after rooting and applying the
-Galaxy S25 profile, at the former local-app installation stage. Google email and
+By default, Bumble is installed from Google Play only after the Galaxy S25
+identity and battery, signal and proxy-derived GPS profile are active. Google email and
 password are requested privately in the terminal and are not saved or logged.
 The observed sign-in flow skips optional **Sign in with ease** carrier discovery,
 selects personal use, skips optional recovery and home address entry, and disables
 basic device backup. Uppercase Google buttons and a return to the signed-in
 Play Store home screen are supported. Extra Google security checks
 remain manual. Setup waits for installation, verifies Google Play as the installer,
-opens Bumble, and continues the existing final checks and account-creation flow.
+force-stops Bumble without opening it, activates package isolation with a reboot,
+restarts and verifies runtime services, and opens Bumble only after the final
+checker and setup certificate pass.
 Google Play supplies its currently available compatible version.
 
 Local APK/XAPK files beside the script are no longer installed automatically.

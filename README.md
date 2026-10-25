@@ -159,6 +159,34 @@ Override the default with `--proxy-file PATH` or `--proxy VALUE`; prefer a file
 to avoid putting credentials in your shell history. `--no-proxy` disables it
 for that invocation. A missing explicitly requested file fails setup.
 
+### Automatic per-phone NodeMaven proxies
+
+To give every newly created phone its own verified NodeMaven session, save a
+current NodeMaven API key as `.local/nodemaven-api-key` with permissions `600`.
+Do not pass the key on the command line. When that file exists and no explicit
+proxy option is supplied, setup performs the following before creating the AVD:
+
+1. Reads the account's proxy credentials through the NodeMaven API.
+2. Looks up current US Mobile inventory and selects the T-Mobile carrier code,
+   preferring inventory marked High.
+3. Requests a unique no-rotation session and uses NodeMaven's Quality filter.
+4. Uses NodeMaven's proxy check to require a matching US/T-Mobile exit.
+5. Saves the private proxy under the phone's backup `setup` directory with
+   permissions `600`. Later `emulator_proxy.py --avd NAME` launches select it
+   automatically.
+
+NodeMaven calls the highest-quality filter **Quality** in its dashboard, but its
+documented username spelling is `-filter-medium`. `-filter-high` is not a valid
+replacement; “High” on locations and carriers is an inventory-availability
+badge. An expired key, missing T-Mobile inventory, failed proxy authentication,
+or mismatched exit aborts setup before the AVD is created. Explicit `--proxy`,
+`--proxy-file`, and `--no-proxy` options always take precedence. To use a key
+stored elsewhere, pass `--nodemaven-key-file PATH`.
+
+No-rotation deliberately keeps the phone on its original exit. If that mobile
+endpoint goes offline, networking stops instead of NodeMaven silently replacing
+it with an IP whose city no longer matches the phone's saved GPS profile.
+
 ## Create a phone
 
 Preview without creating or changing a device:
@@ -177,9 +205,10 @@ It proposes a fresh `Galaxy_S25_DATE_RANDOM` name and asks for resources and,
 when signup is enabled, profile name/gender. Existing AVD names and backup
 directories are rejected. Setup creates the AVD, patches its private ramdisk,
 completes Magisk setup, applies the lab profile, signs into Google Play and
-installs/opens Bumble (plus any explicitly requested local apps),
-configures fixtures and mount isolation, runs the checker, and opens signup
-when Bumble is installed and a terminal is attached.
+finishes the battery, signal and proxy-derived GPS profile, installs Bumble
+without opening it (plus any explicitly requested local apps), activates mount
+isolation with a reboot, verifies the complete phone, and only then opens Bumble
+for signup when a terminal is attached.
 
 Google sign-in selects personal use and skips optional recovery and address
 entry. Google security checks remain manual. Non-interactive runs print a
@@ -284,7 +313,7 @@ are automated. See [signup behavior](bumble-signup/README.md).
 To build a fresh phone with Plenty of Fish instead, select the POF path:
 
 ```sh
-./setup_galaxy_s25_avd.sh --pof-signup
+./setup_galaxy_s25_avd.sh --pof-signup --camera-video /absolute/path/to/this-phone.mp4
 ```
 
 This installs the official `com.pof.android` package from Google Play, adds it

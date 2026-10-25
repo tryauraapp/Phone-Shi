@@ -76,6 +76,10 @@ class ProxyTests(unittest.TestCase):
             proxy.resolve(file='/nonexistent/proxy-test')
         self.assertEqual(proxy.resolve(file='/nonexistent/proxy-test', disabled=True), '')
 
+    def test_phone_proxy_path_is_scoped_to_one_avd(self):
+        self.assertEqual(proxy.phone_proxy_file('Phone_A', '/private/backups'),
+                         Path('/private/backups/Phone_A/setup/nodemaven-proxy'))
+
     def test_launch_passes_explicit_host_proxy_without_proxying_control_services(self):
         with patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--proxy',
                                 '192.0.2.1:8080:user:password']), patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:

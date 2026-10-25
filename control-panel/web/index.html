@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Creator Control</title><meta name="description" content="Prepare creator profiles and per-account camera media.">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="mark">CC</span><div><strong>Creator Control</strong><small>Account workspace</small></div></div>
+      <nav><button class="nav active" data-view="prepare">✦ <span>Prepare accounts</span></button><button class="nav" data-view="creators">◎ <span>Creators</span></button><button class="nav" data-view="accounts">▦ <span>Account queue</span></button></nav>
+      <div class="aside-foot"><span id="pipelineDot" class="status-dot"></span><div><b>Media pipeline</b><small id="pipelineText">Checking…</small></div></div>
+    </aside>
+    <main>
+      <header><div><p class="eyebrow">Workspace / Account creation</p><h1 id="title">Prepare accounts</h1></div><div class="header-actions"><button class="ghost" id="tokenButton">Access token</button><button class="primary" id="newCreator">＋ New creator</button></div></header>
+      <section id="notice" class="notice hidden"></section>
+      <section id="prepare" class="view active">
+        <div class="stepper"><span class="on">1 Creator</span><i></i><span>2 Apps & profile</span><i></i><span>3 Review</span></div>
+        <div class="grid">
+          <div class="card creator-card">
+            <div class="card-head"><div><p class="kicker">01 — Identity</p><h2>Choose a creator</h2></div><span class="pill" id="photoCount">0 photos</span></div>
+            <select id="creatorSelect"><option value="">Select creator…</option></select>
+            <div id="dropzone" class="dropzone"><input id="photoInput" type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple><span class="upload-icon">↥</span><b>Drop creator photos here</b><small>JPG, PNG, WebP or HEIC · originals stay private</small></div>
+          </div>
+          <div class="card app-card">
+            <div class="card-head"><div><p class="kicker">02 — Destinations</p><h2>Select apps</h2></div><button class="text-btn" id="selectAll">Select all</button></div>
+            <div id="appChoices" class="app-choices"></div>
+          </div>
+        </div>
+        <div id="profileCard" class="card profile-card hidden">
+          <div class="card-head"><div><p class="kicker">03 — Profile details</p><h2>Shape each profile</h2></div><button class="shuffle" id="randomize">↻ Randomize empty fields</button></div>
+          <div id="appTabs" class="tabs"></div><div id="questions"></div>
+        </div>
+        <div class="card device-card">
+          <div class="card-head"><div><p class="kicker">04 — Phone & camera</p><h2>Per-account identity</h2></div><span class="safe">Stored once per account</span></div>
+          <div class="fields four"><label>Phone family<input id="phone" value="Select a phone" readonly></label><label>Proxy location<input id="home" value="Derived from selected phone" readonly></label><label>AVD<select id="avd"><option value="">Choose phone…</option></select></label><label>Connected device<select id="serial"><option value="">Not connected</option></select></label></div>
+          <div class="camera-note"><span>⌁</span><div><b>Proxy-locked camera files</b><small>Device, GPS center, local time and UTC offset are derived from the selected phone’s saved proxy record. Preparation stops when that record is missing.</small></div></div>
+        </div>
+        <div class="bottom-bar"><div><b id="summary">Choose a creator and app to continue</b><small>Preparation never crosses SMS, CAPTCHA or identity checks.</small></div><button class="primary large" id="prepareButton">Prepare account set →</button></div>
+      </section>
+      <section id="creators" class="view"><div id="creatorList" class="list-grid"></div></section>
+      <section id="accounts" class="view"><div class="toolbar"><p>Prepared media and stored onboarding choices.</p><button class="ghost" id="inspect">Inspect current screen</button></div><div id="liveOptions" class="live-options hidden"></div><div id="accountList" class="account-list"></div></section>
+    </main>
+  </div>
+  <dialog id="creatorDialog"><form method="dialog"><div class="dialog-head"><div><p class="kicker">New record</p><h2>Add a creator</h2></div><button value="cancel" class="icon-btn">×</button></div><label>Display name<input id="creatorName" placeholder="e.g. Maya" autofocus></label><label>Internal notes<textarea id="creatorNotes" placeholder="Optional notes — never shown in app"></textarea></label><div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button id="saveCreator" value="default" class="primary">Create creator</button></div></form></dialog>
+  <script src="/app.js"></script>
+</body></html>

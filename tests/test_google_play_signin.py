@@ -31,6 +31,14 @@ class GooglePlaySignInTests(unittest.TestCase):
         xml = '<hierarchy><node text="What are you into?"/><node text="Choose apps categories"/><node text="Skip"/></hierarchy>'
         self.assertEqual(google.sign_in_action(xml), 'store-recommendations')
 
+    def test_optional_payment_setup_is_recognized(self):
+        xml = ('<hierarchy>'
+               '<node package="com.android.vending" text="Complete account setup"/>'
+               '<node package="com.android.vending" text="Add a payment option to complete your account. You won&apos;t be charged unless you make a purchase."/>'
+               '<node package="com.android.vending" text="Skip" clickable="true" enabled="true" bounds="[0,0][100,100]"/>'
+               '</hierarchy>')
+        self.assertEqual(google.play_screen_action(xml), 'payment-setup')
+
     def test_observed_overlays_take_priority_over_background_listing(self):
         for filename, action in [('complete-account-setup.xml', 'account-setup'),
                                  ('play-pass-offer.xml', 'play-pass'),
@@ -38,17 +46,18 @@ class GooglePlaySignInTests(unittest.TestCase):
             xml = (Path(__file__).parent / 'fixtures/google-play' / filename).read_text()
             self.assertEqual(google.sign_in_action(xml), action)
 
-    def test_terms_require_manual_acceptance_and_never_tap_agree(self):
+    def test_terms_tap_agree_after_explicit_workflow_authorization(self):
         xml = (Path(__file__).parent / 'fixtures/google-play/google-terms.xml').read_text()
         done = '<hierarchy><node text="Bumble Dating App: Meet &amp; Date"/></hierarchy>'
         with patch.object(google.sys.stdin, 'isatty', return_value=True), \
                 patch.object(google, 'read_ui', side_effect=[xml, done]), \
-                patch('builtins.input', return_value='') as prompt, \
-                patch.object(google.subprocess, 'run') as run, \
+                patch.object(google.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')) as run, \
                 patch.object(google.time, 'sleep'):
             google.ensure_sign_in('test', button_center)
-        prompt.assert_called_once()
-        run.assert_not_called()
+        x, y = button_center(xml, 'I agree')
+        self.assertEqual(run.call_args.args[0],
+                         ['adb', '-s', 'test', 'shell', 'input', 'tap', str(x), str(y)])
 
     def test_phone_signin_can_finish_while_private_terminal_prompt_waits(self):
         done = '<hierarchy><node text="Bumble Dating App: Meet &amp; Date"/></hierarchy>'
@@ -77,6 +86,10 @@ class GooglePlaySignInTests(unittest.TestCase):
                'content-desc="Signed in as Test test@example.invalid Account and settings."/>'
                '<node text="Install"/></hierarchy>')
         self.assertEqual(google.sign_in_action(xml), 'store-home')
+
+    def test_requested_non_bumble_listing_is_done(self):
+        xml = '<hierarchy><node text="Plenty of Fish: Dating"/></hierarchy>'
+        self.assertEqual(google.sign_in_action(xml, 'Plenty of Fish'), 'done')
 
     def test_observed_email_and_password_screens(self):
         self.assertEqual(google.sign_in_action(account_screen()), 'email')

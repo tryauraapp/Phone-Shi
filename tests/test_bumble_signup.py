@@ -30,6 +30,13 @@ class BumbleTests(unittest.TestCase):
                 manual.assert_called_once()
                 click.assert_not_called()
 
+    def test_account_block_is_a_terminal_non_action_state(self):
+        runner = self.runner()
+        state, action = runner.step(b.Screen(
+            '<hierarchy><node text="Account blocked"/><node text="Community Guidelines"/></hierarchy>'))
+        self.assertEqual(state, 'account blocked')
+        self.assertEqual(action, 'account_blocked')
+
     def runner(self, **profile):
         return b.Signup('emulator-test', 'Test', Path('/tmp'), dict(verification=True, **profile))
 
@@ -45,10 +52,10 @@ class BumbleTests(unittest.TestCase):
         self.assertNotIn('phone', profile)
         self.assertTrue(profile['verification'])
         self.assertEqual(profile['country'], 'United States')
-        self.assertEqual(profile['birthday'].isoformat(), '2007-01-28')
-        self.assertTrue(profile['show_gender'])
+        self.assertNotIn('birthday', profile)
+        self.assertNotIn('show_gender', profile)
         self.assertEqual(profile['email'], '')
-        self.assertEqual(profile['intention'], 'Open to seeing where things go')
+        self.assertNotIn('intention', profile)
 
     def test_saved_choices_skip_screen_questions_and_still_ask_for_fresh_phone(self):
         runner = self.runner(**{k: v for k, v in b.profile_defaults().items() if k != 'verification'})
@@ -64,7 +71,10 @@ class BumbleTests(unittest.TestCase):
         self.assertIn('National phone number', ask.call_args.args[0])
         choose.assert_not_called()
         self.assertIn(('Skip',), [c.args for c in click.call_args_list])
-        select.assert_called_once_with('Open to seeing where things go')
+        self.assertEqual(select.call_count, 1)
+        self.assertIn(select.call_args.args[0], ['A long-term relationship', 'A life partner',
+                      'Open to seeing where things go', 'Something casual', 'Marriage',
+                      'Ethical non-monogamy'])
 
     def test_phone_number_prompt_waits_for_phone_screen_action_and_is_cached(self):
         runner = self.runner()
@@ -203,6 +213,56 @@ class BumbleTests(unittest.TestCase):
         self.assertEqual(len(set(clicks)), 5)
         self.assertEqual(set(clicks), set(runner.profile['interests']))
 
+    def test_optional_profile_details_choose_visible_answers_instead_of_skip(self):
+        fixtures = {
+            'Your height': '64-next.xml',
+            'Let’s talk about your lifestyle': '68-next.xml',
+            'Do you have kids or family plans?': '70-next.xml',
+            'What’s important in your life?': '72-next.xml',
+        }
+        for title, filename in fixtures.items():
+            with self.subTest(title=title):
+                runner = self.runner()
+                current = screen(filename)
+                with patch.object(runner, 'read', return_value=current), \
+                        patch.object(runner, 'click') as click, \
+                        patch.object(b.secrets, 'choice', side_effect=lambda values: values[0]):
+                    state, action = runner.step(current)
+                    self.assertEqual(state, title)
+                    action()
+                self.assertNotIn(('Skip',), [call.args for call in click.call_args_list])
+                self.assertEqual(click.call_args_list[-1].args, ('Continue',))
+                self.assertTrue(runner.profile['profile_details'][title])
+
+    def test_random_height_accepts_us_imperial_labels(self):
+        runner = self.runner()
+        current = b.Screen('<hierarchy><node text="Your height" enabled="true" bounds="[0,0][10,10]"/>'
+                           '<node text="5\' 4\'\'" enabled="true" bounds="[0,20][100,40]"/>'
+                           '<node content-desc="Continue" enabled="true" bounds="[0,50][100,70]"/></hierarchy>')
+        with patch.object(runner, 'read', return_value=current), patch.object(runner, 'click') as click:
+            runner.random_profile_details('Your height')
+        self.assertEqual(click.call_args_list[0].args, ("5' 4''",))
+        self.assertEqual(click.call_args_list[-1].args, ('Continue',))
+
+    def test_ethnicity_and_visibility_are_randomized(self):
+        current = b.Screen('<hierarchy><node text="What’s your ethnicity?" enabled="true" bounds="[0,0][100,20]"/>'
+                           '<node text="European" enabled="true" bounds="[0,30][100,50]"/>'
+                           '<node class="android.widget.Switch" resource-id="com.bumble.app:id/ethnicity_selection_show_profile_toggle" '
+                           'enabled="true" checkable="true" checked="false" bounds="[0,60][100,80]"/>'
+                           '<node content-desc="Continue" enabled="true" bounds="[0,90][100,110]"/></hierarchy>')
+        runner = self.runner()
+        with patch.object(runner, 'read', return_value=current), patch.object(runner, 'click') as click, \
+                patch.object(runner, 'tap') as tap, \
+                patch.object(b.secrets, 'choice', side_effect=['European', True]):
+            state, action = runner.step(current)
+            self.assertEqual(state, 'random ethnicity')
+            action()
+        self.assertEqual(click.call_args_list[0].args, ('European',))
+        self.assertEqual(click.call_args_list[-1].args, ('Continue',))
+        tap.assert_called_once()
+        self.assertEqual(runner.profile['ethnicity'], 'European')
+        self.assertTrue(runner.profile['show_ethnicity'])
+
     def test_recorded_signup_screens_and_verification_navigation(self):
         # Saved app evidence, including loading overlays and the final manual
         # selfie handoff. No device or account is touched by these tests.
@@ -256,11 +316,24 @@ class BumbleTests(unittest.TestCase):
             runner.gender_visibility()
         self.assertEqual(call.call_args.args, ('shell', 'input', 'tap', '955', '908'))
 
-    def test_user_text_is_shell_quoted_and_unicode_requires_manual_entry(self):
+    def test_user_text_is_humanized_and_stays_out_of_process_arguments(self):
         runner = self.runner()
-        with patch.object(runner, 'call') as call:
-            runner.type_text('Cafe $(id); "hi"')
-            self.assertEqual(call.call_args.args, ('shell', 'input text \'Cafe%s$(id);%s"hi"\''))
+        class FixedRandom:
+            def uniform(self, low, high):
+                return (low + high) / 2
+            def random(self):
+                return 1.0
+        completed = subprocess.CompletedProcess(['adb'], 0, '', '')
+        with patch.object(b.secrets, 'SystemRandom', return_value=FixedRandom()), \
+                patch.object(b.subprocess, 'run', return_value=completed) as run, \
+                patch.object(b.time, 'sleep') as sleep:
+            runner.type_text('A b')
+            self.assertEqual([call.kwargs['input'] for call in run.call_args_list],
+                             ['input text A\n', 'input text %s\n', 'input text b\n'])
+            self.assertTrue(all(call.args[0] == ['adb', '-s', 'emulator-test', 'shell']
+                                for call in run.call_args_list))
+            self.assertEqual(sleep.call_count, 2)
+            self.assertTrue(all(0.045 <= call.args[0] <= 0.565 for call in sleep.call_args_list))
             with self.assertRaises(RuntimeError):
                 runner.type_text('café')
 
@@ -302,18 +375,28 @@ class BumbleTests(unittest.TestCase):
                                   ('shell', 'input', 'keyevent', 'KEYCODE_BACK'), ('read_ui',),
                                   ('shell', 'input', 'tap', '50', '150')])
 
-    def test_dating_preference_defaults_to_requested_opposite_gender(self):
-        for gender, expected in [('Woman', 'Men'), ('Man', 'Women')]:
+    def test_prompt_save_taps_footer_without_dismissing_keyboard(self):
+        runner = self.runner()
+        current = b.Screen('<hierarchy><node content-desc="Double tap to save your answer" '
+                           'enabled="true" bounds="[0,100][100,200]"/></hierarchy>')
+        with patch.object(runner, 'read', return_value=current), patch.object(runner, 'call') as call:
+            runner.click('Double tap to save your answer')
+        call.assert_called_once_with('shell', 'input', 'tap', '50', '150')
+
+    def test_dating_preference_is_random_for_every_profile_gender(self):
+        for gender in ('Woman', 'Man', 'Nonbinary'):
             runner = self.runner(gender=gender)
-            with patch.object(b, 'choose') as choose, patch.object(runner, 'select_continue') as select:
+            with patch.object(b.secrets, 'choice', side_effect=lambda values: values[-1]), \
+                    patch.object(runner, 'select_continue') as select:
                 runner.dating_preference()
-            choose.assert_not_called()
-            select.assert_called_once_with(expected)
-        runner = self.runner(gender='Nonbinary')
-        with patch.object(b, 'choose', return_value='Women') as choose, patch.object(runner, 'select_continue') as select:
-            runner.dating_preference()
-        choose.assert_called_once()
-        select.assert_called_once_with('Women')
+            select.assert_called_once_with('Nonbinary people')
+
+    def test_random_birthday_is_an_adult_between_21_and_35(self):
+        today = b.dt.date(2026, 10, 24)
+        birthday = b.random_adult_birthday(today)
+        age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
+        self.assertGreaterEqual(age, 21)
+        self.assertLessEqual(age, 35)
 
     def test_sms_supports_current_container_only_hierarchy_and_mac_clipboard(self):
         runner = self.runner()

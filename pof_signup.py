@@ -24,13 +24,19 @@ PERMISSION_PACKAGES = {
 }
 MEDIA_PACKAGES = {'com.google.android.providers.media.module',
                   'com.android.providers.media.module'}
+VOICE_IME_ID = ('com.google.android.tts/'
+                'com.google.android.apps.speech.tts.googletts.settings.asr.voiceime.'
+                'VoiceInputMethodService')
 
 # Labels observed in POF 5.70.1.1516767. Dynamic profile data is intentionally
 # absent so it cannot enter committed fixtures.
 LABELS = {
     'Allow POF to send you notifications?', 'Allow', 'Don’t allow', "Don't allow",
-    'Create account', 'Sign in', 'What’s your first name?', "What's your first name?",
+    'Create account', 'Sign in', 'Already a member? Log in',
+    'What’s your first name?', "What's your first name?", 'Let’s get started.',
+    'First name', 'What can we call you?', 'Let’s go',
     'Next', 'Woman', 'Man', 'Non-binary', 'Show my gender on my profile',
+    'Show gender on my profile', '+ More options', 'Tell us who you are.',
     'What is your ethnicity?', 'Caucasian', 'Allow location',
     'Allow POF to access this device’s location?',
     "Allow POF to access this device's location?", 'Precise', 'Approximate',
@@ -132,9 +138,13 @@ def classify(xml):
         return 'phone-entry-manual-stop'
     if 'email address' in app and 'password' in app and ('terms' in app or 'privacy' in app):
         return 'credentials-and-terms-manual-stop'
-    if 'what’s your first name' in app or "what's your first name" in app:
+    if ('what’s your first name' in app or "what's your first name" in app or
+            ('first name' in app and 'what can we call you' in app and 'let’s go' in app) or
+            {PACKAGE + ':id/first_name',
+             PACKAGE + ':id/create_account_first_name_next'} <= resource_ids):
         return 'first-name'
-    if 'show my gender' in app and 'woman' in app and 'man' in app:
+    if (('show my gender' in app or 'show gender on my profile' in app)
+            and 'woman' in app and 'man' in app):
         return 'gender'
     if 'ethnicity' in app:
         return 'ethnicity'
@@ -168,7 +178,7 @@ def classify(xml):
         return 'bio'
     if 'interests' in app:
         return 'interests'
-    if 'create account' in app and 'sign in' in app:
+    if 'create account' in app and ('sign in' in app or 'log in' in app):
         return 'welcome'
     return 'unknown'
 
@@ -197,6 +207,21 @@ def _validate_device(serial, avd):
         raise RuntimeError('Selected AVD does not match --avd')
     if 'package:' not in adb_call(serial, 'shell', 'pm', 'path', PACKAGE):
         raise RuntimeError('Plenty of Fish is not installed')
+
+
+def dismiss_accidental_voice_input(serial):
+    """Close only the observed Google voice IME, never a POF/app screen."""
+    state = adb_call(serial, 'shell', 'dumpsys', 'input_method')
+    if not isinstance(state, str):
+        return False
+    current = re.search(r'^\s*mCurMethodId=(\S+)', state, re.M)
+    shown = re.search(r'^\s*mInputShown=true\s*$', state, re.M)
+    if not current or current.group(1) != VOICE_IME_ID or not shown:
+        return False
+    adb_call(serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    print('Dismissed accidental Google voice input with Android Back.', flush=True)
+    time.sleep(1)
+    return True
 
 
 def _save_snapshot(xml, state, output):
@@ -229,6 +254,34 @@ def _tap_exact(serial, xml, *, package, text, resource_id=None):
         raise RuntimeError(f'{text!r} control bounds unavailable')
     left, top, right, bottom = map(int, match.groups())
     adb_call(serial, 'shell', 'input', 'tap', str((left + right) // 2), str((top + bottom) // 2))
+
+
+def submit_first_name(serial, name):
+    """Submit the user-supplied first name without saving it in fixtures."""
+    if not re.fullmatch(r"[A-Za-z][A-Za-z '-]{0,39}", name):
+        raise ValueError('First name contains unsupported characters or length')
+    dismiss_accidental_voice_input(serial)
+    xml = read_ui(serial)
+    if classify(xml) != 'first-name':
+        raise RuntimeError('Expected observed POF first-name screen')
+    root = ET.fromstring(xml)
+    fields = [node for node in root.iter('node')
+              if node.get('package') == PACKAGE and
+              node.get('resource-id') == PACKAGE + ':id/first_name' and
+              node.get('class') == 'android.widget.EditText']
+    if len(fields) != 1:
+        raise RuntimeError('Expected one POF first-name field')
+    _tap_exact(serial, xml, package=PACKAGE, text=fields[0].get('text', ''),
+               resource_id=PACKAGE + ':id/first_name')
+    adb_call(serial, 'shell', 'input', 'text', name.replace(' ', '%s'))
+    entered = read_ui(serial)
+    matches = [node for node in ET.fromstring(entered).iter('node')
+               if node.get('resource-id') == PACKAGE + ':id/first_name']
+    if len(matches) != 1 or matches[0].get('text') != name:
+        raise RuntimeError('POF first name did not match the supplied value')
+    _tap_exact(serial, entered, package=PACKAGE, text='Let’s go',
+               resource_id=PACKAGE + ':id/create_account_first_name_next')
+    print('User-supplied first name verified and submitted; value not saved.', flush=True)
 
 
 def allow_notifications(serial):
@@ -284,6 +337,7 @@ def dismiss_filters_tip(serial):
 
 def observe(serial, avd, output):
     _validate_device(serial, avd)
+    dismiss_accidental_voice_input(serial)
     xml = read_ui(serial)
     if not xml:
         raise RuntimeError('No Android UI hierarchy was returned')
@@ -298,11 +352,20 @@ def run_signup(serial, avd, output, *, notifications=False, location=False,
                free_account=False, dismiss_tip=False):
     """Advance only explicitly authorized permissions; pause everywhere else."""
     _validate_device(serial, avd)
+    unknown_frames = 0
     for _ in range(20):
+        dismiss_accidental_voice_input(serial)
         xml = read_ui(serial)
         state = classify(xml)
         _save_snapshot(xml, state, output)
         print(f'POF screen: {state}', flush=True)
+        if state == 'unknown':
+            unknown_frames += 1
+            if unknown_frames < 3:
+                time.sleep(2)
+                continue
+        else:
+            unknown_frames = 0
         if state == 'notification-permission' and notifications:
             allow_notifications(serial)
         elif state in {'location-rationale', 'location-permission'} and location:
@@ -345,6 +408,11 @@ def main():
     args = parser.parse_args()
     if args.run_signup:
         verify_phone_setup(args.serial, args.avd, PACKAGE)
+        # The Play Store path deliberately leaves the app closed until the
+        # complete phone and package-isolation certificate has passed.
+        adb_call(args.serial, 'shell', 'monkey', '-p', PACKAGE,
+                 '-c', 'android.intent.category.LAUNCHER', '1')
+        time.sleep(1)
         return run_signup(args.serial, args.avd, args.output,
                           notifications=args.allow_notifications,
                           location=args.allow_location,

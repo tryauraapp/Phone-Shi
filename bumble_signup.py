@@ -84,13 +84,25 @@ def random_prompts(count=2, exclude=()):
 
 def profile_defaults():
     values = json.loads((ROOT / 'bumble-signup/profile-defaults.json').read_text())
-    birthday = dt.date.fromisoformat(values['birthday'])
-    today = dt.date.today()
-    age = today.year - birthday.year - ((today.month, today.day) < (birthday.month, birthday.day))
-    if not 18 <= age <= 120:
-        raise RuntimeError('Saved birthday must be for an adult (18+)')
-    values['birthday'] = birthday
     return values
+
+
+def random_adult_birthday(today=None):
+    """Return a valid random birthday for an adult aged 21 through 35."""
+    today = today or dt.date.today()
+    age = secrets.choice(range(21, 36))
+    year = today.year - age
+    month = secrets.choice(range(1, 13))
+    while True:
+        day = secrets.choice(range(1, 32))
+        try:
+            birthday = dt.date(year, month, day)
+            break
+        except ValueError:
+            continue
+    if (today.month, today.day) < (birthday.month, birthday.day):
+        birthday = birthday.replace(year=year - 1)
+    return birthday
 
 
 def collect_profile(name='', gender=''):
@@ -105,9 +117,9 @@ def collect_profile(name='', gender=''):
         print('  ' + photo.name)
     print('Phone number, SMS code and other details will be requested at their Bumble screens.')
     print('Five random interests and two random written prompts will be added.')
-    print('Optional height, habits, family plans and beliefs will be skipped.')
+    print('Height, habits, family plans and beliefs will use random visible choices.')
     defaults = profile_defaults()
-    print('Using saved profile choices from bumble-signup/profile-defaults.json.')
+    print('Using fixed operational choices only; profile details randomize at their screens.')
     return dict(defaults, name=name, gender=gender, photos=photos, prompts=random_prompts())
 
 
@@ -216,20 +228,40 @@ class Signup:
         self.call('shell', 'input', 'tap', str(x), str(y))
 
     def click(self, label=None, rid=None):
-        if label in ('Continue', 'Double tap to save your answer', 'Upload'):
+        if label in ('Continue', 'Upload'):
             # Compose can report footer bounds behind the IME. A tap there may
             # only dismiss the keyboard, leaving the form unchanged.
             keyboard = self.call('shell', 'dumpsys', 'input_method')
             if re.search(r'\bmInputShown=true\b', keyboard):
                 self.call('shell', 'input', 'keyevent', 'KEYCODE_BACK')
         # Always refresh after a prior action: keyboard/Compose layouts can move.
-        self.tap(self.read().find(label, rid))
+        # Compose may briefly remove a footer while the IME is closing, so use a
+        # short bounded retry instead of treating that transition as a missing control.
+        node = None
+        for attempt in range(5):
+            node = self.read().find(label, rid)
+            if node is not None:
+                break
+            if attempt < 4:
+                time.sleep(0.4)
+        self.tap(node)
 
     def type_text(self, value):
-        # adb shell reconstructs a shell command; quote user text explicitly.
+        # Type one character at a time with small natural timing variations.
+        # Values travel through adb shell stdin, not host process arguments.
         if not value.isascii() or '%s' in value or '\n' in value:
             raise RuntimeError('This text needs manual keyboard entry in the emulator')
-        self.call('shell', 'input text ' + shlex.quote(value.replace(' ', '%s')))
+        rng = secrets.SystemRandom()
+        for index, character in enumerate(value):
+            token = '%s' if character == ' ' else character
+            subprocess.run(['adb', '-s', self.serial, 'shell'],
+                           input='input text ' + shlex.quote(token) + '\n',
+                           capture_output=True, text=True, timeout=12, check=True)
+            if index + 1 < len(value):
+                delay = rng.uniform(0.045, 0.145)
+                if rng.random() < 0.08:
+                    delay += rng.uniform(0.18, 0.42)
+                time.sleep(delay)
 
     def fill(self, index, value):
         node = self.read().edits()[index]
@@ -285,6 +317,8 @@ class Signup:
 
     def step(self, s):
         p = self.profile
+        if s.has('Account blocked') and s.has('Community Guidelines'):
+            return 'account blocked', 'account_blocked'
         if s.has('Protecting your account') and s.has('Please solve this puzzle'):
             return 'manual CAPTCHA', lambda: self.manual('Complete the CAPTCHA yourself on the device, then resume')
         if s.has('Please reload the challenge to try again'):
@@ -335,10 +369,12 @@ class Signup:
             return 'random interests', self.interests
         if s.has('Which one of your interests is your favorite?'):
             return 'favorite interest', self.favorite_interest
+        if s.has('What’s your ethnicity?'):
+            return 'random ethnicity', self.random_ethnicity
         for title in ['Your height', 'Let’s talk about your lifestyle',
                       'Do you have kids or family plans?', 'What’s important in your life?']:
             if s.has(title):
-                return title, lambda: self.click('Skip')
+                return title, lambda title=title: self.random_profile_details(title)
         if s.has('Add at least one prompt'):
             # Recognize prompts saved by earlier runs, but only choose new
             # questions from the current device's mapped catalog.
@@ -529,7 +565,8 @@ class Signup:
 
     def intro(self):
         if 'birthday' not in self.profile:
-            self.profile['birthday'] = ask_birthday()
+            self.profile['birthday'] = random_adult_birthday()
+            print(f"Bumble birthday: {self.profile['birthday'].isoformat()} (random adult)", flush=True)
         birthday = self.profile['birthday']
         for i, value in enumerate([self.profile['name'], f'{birthday.month:02}',
                                    f'{birthday.day:02}', str(birthday.year)]):
@@ -548,7 +585,8 @@ class Signup:
 
     def gender_visibility(self):
         if 'show_gender' not in self.profile:
-            self.profile['show_gender'] = choose('Show gender on profile?', ['Yes', 'No']) == 'Yes'
+            self.profile['show_gender'] = secrets.choice([True, False])
+            print('Bumble show gender: ' + ('Yes' if self.profile['show_gender'] else 'No'), flush=True)
         s = self.read()
         toggle = s.find(rid='toggle_with_text_toggle')
         if toggle is None or toggle.get('checkable') != 'true':
@@ -571,19 +609,17 @@ class Signup:
 
     def dating_preference(self):
         if 'dating' not in self.profile:
-            opposite = {'Woman': 'Men', 'Man': 'Women'}.get(self.profile.get('gender'))
-            if opposite:
-                self.profile['dating'] = opposite
-                print(f'Bumble dating preference: {opposite} (opposite gender).')
-            else:
-                self.profile['dating'] = choose('Who would you like to meet?',
-                                               ['I’m open to dating everyone', 'Men', 'Women', 'Nonbinary people'])
+            self.profile['dating'] = secrets.choice(
+                ['I’m open to dating everyone', 'Men', 'Women', 'Nonbinary people'])
+            print(f"Bumble dating preference: {self.profile['dating']} (random).", flush=True)
         self.select_continue(self.profile['dating'])
 
     def dating_intention(self):
         if 'intention' not in self.profile:
-            self.profile['intention'] = choose('Dating intention', ['A long-term relationship', 'A life partner',
-                       'Open to seeing where things go', 'Something casual', 'Marriage', 'Ethical non-monogamy'])
+            self.profile['intention'] = secrets.choice([
+                'A long-term relationship', 'A life partner', 'Open to seeing where things go',
+                'Something casual', 'Marriage', 'Ethical non-monogamy'])
+            print(f"Bumble dating intention: {self.profile['intention']} (random).", flush=True)
         self.select_continue(self.profile['intention'])
 
     def prompt_answer(self):
@@ -676,6 +712,73 @@ class Signup:
                 sum(verified.checked(label) for label in self.profile['interests']) == 5):
             raise UIActionError('Five interests were not confirmed; finish the selection on screen')
         print('Bumble interests: ' + ', '.join(self.profile['interests']))
+        self.click('Continue')
+
+    def random_profile_details(self, title):
+        """Choose visible onboarding details instead of silently skipping them."""
+        if title == 'Your height':
+            choices = [n.get('text', '') for n in self.read().nodes
+                       if re.fullmatch(r"(?:\d{3} cm|\d' \d{1,2}'')", n.get('text', ''))]
+            groups = [choices]
+        elif title == 'Let’s talk about your lifestyle':
+            groups = [
+                ['Yes, I drink', 'I drink sometimes', 'I rarely drink',
+                 'No, I don’t drink', 'I’m sober'],
+                ['I smoke sometimes', 'No, I don’t smoke',
+                 'Yes, I smoke', 'I’m trying to quit'],
+            ]
+        elif title == 'Do you have kids or family plans?':
+            groups = [
+                ['Have kids', 'Don’t have kids'],
+                ['Don’t want kids', 'Open to kids', 'Want kids', 'Not sure'],
+            ]
+        elif title == 'What’s important in your life?':
+            groups = [
+                ['Agnostic', 'Atheist', 'Buddhist', 'Catholic', 'Christian',
+                 'Hindu', 'Jain', 'Jewish', 'Mormon', 'Latter-day Saint',
+                 'Muslim', 'Zoroastrian', 'Sikh', 'Spiritual', 'Other'],
+                ['Apolitical', 'Moderate', 'Liberal', 'Conservative'],
+            ]
+        else:
+            raise UIActionError(f'Unsupported profile detail screen: {title}')
+
+        selected = []
+        for group in groups:
+            screen = self.read()
+            visible = [label for label in group if screen.find(label) is not None]
+            if not visible:
+                raise UIActionError(f'No visible choices found for {title}')
+            choice = secrets.choice(visible)
+            self.click(choice)
+            selected.append(choice)
+        self.profile.setdefault('profile_details', {})[title] = selected
+        print(f"Bumble {title}: {', '.join(selected)}", flush=True)
+        self.click('Continue')
+
+    def random_ethnicity(self):
+        labels = [
+            'African American', 'Black', 'Black African', 'Black American',
+            'Black Caribbean', 'Central Asian', 'Chinese Caribbean', 'East Asian',
+            'European', 'Hispanic', 'Jewish', 'Indo-Caribbean', 'Latina', 'Latino',
+            'Latinx', 'Middle Eastern', 'Native American', 'Pacific Islander',
+            'South Asian', 'Southeast Asian', 'White', 'Other',
+        ]
+        screen = self.read()
+        visible = [label for label in labels if screen.find(label) is not None]
+        if not visible:
+            raise UIActionError('No visible ethnicity choices found')
+        choice = secrets.choice(visible)
+        self.click(choice)
+        show = secrets.choice([True, False])
+        screen = self.read()
+        toggle = screen.find(rid='ethnicity_selection_show_profile_toggle')
+        if toggle is None or toggle.get('checkable') != 'true':
+            raise UIActionError('Ethnicity visibility toggle is unavailable')
+        if (toggle.get('checked') == 'true') != show:
+            self.tap(toggle)
+        self.profile['ethnicity'] = choice
+        self.profile['show_ethnicity'] = show
+        print(f"Bumble ethnicity: {choice}; show on profile: {'Yes' if show else 'No'}", flush=True)
         self.click('Continue')
 
     def favorite_interest(self):
@@ -806,9 +909,17 @@ def main():
         verify_phone_setup(args.serial, args.avd, PACKAGE)
         profile = collect_profile(args.profile_name, args.profile_gender)
         status = Signup(args.serial, args.avd, args.output, profile).run()
-        print('Bumble signup complete. ' + ('Ready for your selfie; continue with Open camera in the emulator.'
-              if status == 'verification_ready' else 'Stopped before Start connecting.'))
-        exit_code = 0
+        if status == 'verification_ready':
+            print('Bumble signup complete. Ready for your selfie; continue with Open camera in the emulator.')
+            exit_code = 0
+        elif status == 'signup_complete':
+            print('Bumble signup complete. Stopped before Start connecting.')
+            exit_code = 0
+        elif status == 'account_blocked':
+            print('Bumble blocked this account after verification; no retry or bypass was attempted.')
+            exit_code = 3
+        else:
+            print(f'Bumble stopped with status: {status}.')
     except (KeyboardInterrupt, EOFError):
         status, exit_code = 'paused', 2
         print('\nBumble signup paused; the phone and app data are retained.')

@@ -35,14 +35,14 @@ To install Bumble through Google Play instead of a local
 APK/XAPK, run this from the repository root:
 
 ```sh
-python3 play_store_install.py --serial emulator-5554 --avd YOUR_AVD_NAME --sign-in
+python3 play_store_install.py --serial emulator-5554 --avd YOUR_AVD_NAME --sign-in --install-only
 ```
 
 The helper opens Bumble's exact listing, taps **Install**, dismisses the optional
 Play Pass offer with **Not now**, and waits for both Android's installed-package
 record and the enabled **Open** control. It verifies Google Play as the installer,
-taps **Open**, and checks that Bumble reaches the foreground. Unknown prompts
-stop for manual handling. `--sign-in` handles the observed Google login screens
+leaves Bumble force-stopped for package isolation and final verification. Unknown
+prompts stop for manual handling. `--sign-in` handles the observed Google login screens
 with private terminal prompts; omit it when already signed in. Phone creation
 runs this helper after the rooted profile is active and keeps the existing
 Bumble signup steps afterward.

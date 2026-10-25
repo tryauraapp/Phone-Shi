@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a supported test app through Google Play, then open it."""
+"""Install a supported test app through Google Play, optionally leaving it closed."""
 import argparse
 import re
 import subprocess
@@ -48,6 +48,8 @@ def main():
     parser.add_argument('--avd', help='Require this AVD name before making changes')
     parser.add_argument('--timeout', type=int, default=600)
     parser.add_argument('--sign-in', action='store_true', help='Handle Google sign-in with private terminal prompts')
+    parser.add_argument('--install-only', action='store_true',
+                        help='Verify the Play Store installation, force-stop the app, and do not open it')
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error('--timeout must be positive')
@@ -62,7 +64,7 @@ def main():
     call('shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
          '-d', f'market://details?id={package}', '-p', 'com.android.vending')
     if args.sign_in:
-        ensure_sign_in(args.serial, button_center)
+        ensure_sign_in(args.serial, button_center, package=package, listing_marker=listing_marker)
     deadline = time.monotonic() + args.timeout
     requested = False
     last_status = None
@@ -75,11 +77,13 @@ def main():
             continue
         screen = play_screen_action(xml)
         if screen == 'agreement':
-            answer = input('Review and accept Google terms on the device yourself, '
-                           'then press Enter (/quit to pause): ')
-            if answer.strip() == '/quit':
-                raise RuntimeError('Google terms awaiting manual acceptance; device retained')
+            control = button_center(xml, 'I agree')
+            if not control:
+                raise RuntimeError('Google terms screen has no unambiguous I agree control')
+            call('shell', 'input', 'tap', *(str(x) for x in control))
+            print('Accepted the explicitly authorized Google terms.', flush=True)
             deadline = time.monotonic() + args.timeout
+            time.sleep(2)
             continue
         if screen == 'account-setup':
             control = button_center(xml, 'Continue')
@@ -89,6 +93,15 @@ def main():
             # Account setup can interrupt the original Install request.
             requested = False
             print('Continuing Google Play account review; waiting for the next screen.', flush=True)
+            time.sleep(2)
+            continue
+        if screen == 'payment-setup':
+            control = button_center(xml, 'Skip')
+            if not control:
+                raise RuntimeError('Payment setup has no unambiguous Skip control')
+            call('shell', 'input', 'tap', *(str(x) for x in control))
+            requested = False
+            print('Skipped optional Google Play payment setup.', flush=True)
             time.sleep(2)
             continue
         if screen == 'play-pass':
@@ -102,7 +115,8 @@ def main():
         # The target listing is opened directly; never search among similarly named apps.
         if listing_marker not in xml:
             if args.sign_in:
-                ensure_sign_in(args.serial, button_center)
+                ensure_sign_in(args.serial, button_center, package=package,
+                               listing_marker=listing_marker)
                 deadline = time.monotonic() + args.timeout
                 continue
             raise RuntimeError(f'{title} listing is not visible; finish Play Store sign-in or prompts manually')
@@ -115,6 +129,13 @@ def main():
                 dump = call('shell', 'dumpsys', 'package', package)
                 version = re.search(r'^\s*versionName=(\S+)', dump, re.M)
                 print(f'{title} {version.group(1) if version else "(version unavailable)"} installed by Google Play.', flush=True)
+                if args.install_only:
+                    # A package can expose install/replace receivers. Force-stop it so the
+                    # first deliberate foreground launch happens only after isolation and
+                    # the final device checks have passed.
+                    call('shell', 'am', 'force-stop', package)
+                    print(f'{title} is installed and held closed for final phone setup.', flush=True)
+                    return 0
                 call('shell', 'input', 'tap', *(str(x) for x in open_button))
                 for _ in range(10):
                     activity = call('shell', 'dumpsys', 'activity', 'activities')

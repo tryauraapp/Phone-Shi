@@ -21,6 +21,12 @@ from zoneinfo import ZoneInfo
 DEFAULT_FILE = Path(__file__).resolve().parent / '.local' / 'emulator-proxy'
 
 
+def phone_proxy_file(avd, home=None):
+    """Return a provisioned per-phone proxy without exposing its contents."""
+    root = Path(home) if home else Path.home() / 'galaxy_s25_avd_backups'
+    return root / avd / 'setup' / 'nodemaven-proxy'
+
+
 def camera_module():
     # setup launches Python with -I: load this exact sibling, not PYTHONPATH.
     path = Path(__file__).resolve().with_name('native_video_camera.py')
@@ -358,6 +364,12 @@ def main():
     parser.add_argument('--camera-viewer', action='store_true',
                         help='Use our real Camera2 frame viewer/check instead of the stock Camera preview.')
     args, extra = parser.parse_known_args()
+    # A phone provisioned from the NodeMaven API keeps its own sticky proxy.
+    # Explicit proxy arguments (including --no-proxy) always take precedence.
+    if args.avd and args.proxy is None and args.proxy_file is None and not args.no_proxy:
+        per_phone = phone_proxy_file(args.avd)
+        if per_phone.exists():
+            args.proxy_file = str(per_phone)
     try:
         proxy = resolve(args.proxy, args.proxy_file, args.no_proxy)
     except (ValueError, OSError):

@@ -64,7 +64,7 @@ class PlayStoreTests(unittest.TestCase):
     def test_account_review_and_play_pass_then_verified_open(self):
         fixture = Path(__file__).parent / 'fixtures/google-play'
         screens = [(fixture / name).read_text() for name in
-                   ('complete-account-setup.xml', 'play-pass-offer.xml')]
+                   ('google-terms.xml', 'complete-account-setup.xml', 'play-pass-offer.xml')]
         taps = []
         def run(command, **kwargs):
             args = command[3:]
@@ -84,9 +84,10 @@ class PlayStoreTests(unittest.TestCase):
                 patch.object(store, 'read_ui', side_effect=screens + [listing('Open')]), \
                 patch.object(store.time, 'sleep'):
             self.assertEqual(store.main(), 0)
-        self.assertEqual(taps, [store.button_center(screens[0], 'Continue'),
-                                store.button_center(screens[1], 'Not now'), (50, 50)])
-        self.assertNotIn(store.button_center(screens[1], 'Check it out'), taps)
+        self.assertEqual(taps, [store.button_center(screens[0], 'I agree'),
+                                store.button_center(screens[1], 'Continue'),
+                                store.button_center(screens[2], 'Not now'), (50, 50)])
+        self.assertNotIn(store.button_center(screens[2], 'Check it out'), taps)
 
     def test_disabled_open_control_is_not_actionable(self):
         self.assertIsNone(store.button_center(listing('Open', 'false'), 'Open'))
@@ -122,6 +123,28 @@ class PlayStoreTests(unittest.TestCase):
                 patch.object(store.time, 'sleep'):
             self.assertEqual(store.main(), 0)
         self.assertEqual(events, ['not-installed', 'tap', 'not-installed', 'installed', 'verified-installer', 'tap'])
+
+    def test_install_only_verifies_installer_and_never_taps_open(self):
+        commands = []
+        def run(command, **kwargs):
+            commands.append(command)
+            args = command[3:]
+            output = ''
+            if args[:4] == ['shell', 'pm', 'list', 'packages']:
+                output = ('package:com.bumble.app installer=com.android.vending\n'
+                          if '-i' in args else 'package:com.bumble.app\n')
+            elif args[:3] == ['shell', 'dumpsys', 'package']:
+                output = ' versionName=5.489.0\n'
+            return subprocess.CompletedProcess(command, 0, output, '')
+
+        with patch('sys.argv', ['play_store_install.py', '--serial', 'test', '--install-only']), \
+                patch.object(store.subprocess, 'run', side_effect=run), \
+                patch.object(store, 'read_ui', return_value=listing('Open')), \
+                patch.object(store.time, 'sleep'):
+            self.assertEqual(store.main(), 0)
+        shell_commands = [command[3:] for command in commands]
+        self.assertIn(['shell', 'am', 'force-stop', store.PACKAGE], shell_commands)
+        self.assertFalse(any(args[:3] == ['shell', 'input', 'tap'] for args in shell_commands))
 
 
 if __name__ == '__main__':

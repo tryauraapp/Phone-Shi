@@ -20,6 +20,35 @@ def module(name):
 
 
 class LabTests(unittest.TestCase):
+    def test_setup_holds_bumble_closed_until_after_isolation_and_verification(self):
+        source = (ROOT / 'setup_galaxy_s25_avd.sh').read_text()
+        base_reboot = source.index('step "Rebooting and verifying the optimized base phone"')
+        services = source.index('start_signal_runtime\nstart_location_runtime\nverify_runtime_services', base_reboot)
+        install = source.index('--sign-in --install-only')
+        isolation = source.index('step "Configuring Magisk mount isolation for installed test apps"')
+        second_runtime = source.index('    start_signal_runtime', isolation)
+        checker = source.index('step "Checking app-visible signals on the new phone"')
+        certificate = source.index('step "Certifying the full phone setup before app signup"')
+        signup = source.index('step "Bumble signup"')
+        self.assertLess(base_reboot, services)
+        self.assertLess(services, install)
+        self.assertLess(install, isolation)
+        self.assertLess(isolation, second_runtime)
+        self.assertLess(second_runtime, checker)
+        self.assertLess(checker, certificate)
+        self.assertLess(certificate, signup)
+        play = (ROOT / 'play_store_install.py').read_text()
+        self.assertIn("if args.install_only:", play)
+        self.assertIn("'am', 'force-stop', package", play)
+
+    def test_setup_provisions_a_per_phone_nodemaven_proxy_before_creation(self):
+        source = (ROOT / 'setup_galaxy_s25_avd.sh').read_text()
+        provision = source.index('"$SCRIPT_DIR/nodemaven_proxy.py" --avd "$NAME"')
+        avd_creation = source.index('step "Creating AVD $NAME')
+        self.assertLess(provision, avd_creation)
+        self.assertIn('PROXY_OPTIONS=(--proxy-file "$WORK/nodemaven-proxy")', source)
+        self.assertIn('NodeMaven: unique fixed US mobile/T-Mobile session', source)
+
     def test_shell_grant_verification_allows_negative_cache_to_expire(self):
         helper = module('setup_su')
         elapsed = [0]
@@ -197,7 +226,8 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
             self.assertIn('Graphics labels: 1', first)
             self.assertIn('Battery: 1', first)
             self.assertIn('Checker: 1', first)
-            self.assertIn('Bumble installation: Google Play', first)
+            self.assertIn('Bumble flow: finish phone', first)
+            self.assertIn('Install (held closed) → isolate → reboot → verify → first launch', first)
             self.assertIn('no automatic APK/XAPK installation', first)
             skipped = subprocess.run(command + ['--no-apps'], env=env, capture_output=True, text=True, check=True).stdout
             self.assertIn('Bumble installation: Google Play skipped', skipped)
@@ -253,6 +283,11 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
                                         cwd=directory, env=env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f'Front camera: {mode}:{media.resolve()}', result.stdout)
+            result = subprocess.run(command + ['--pof-signup', '--camera-video', str(media)],
+                                    cwd=directory, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f'Front camera: videofile:{media.absolute()}', result.stdout)
+            self.assertNotIn('Front camera: emulated', result.stdout)
             empty = directory / 'empty.mp4'
             empty.touch()
             newline = directory / 'bad\npath.mp4'
@@ -263,6 +298,16 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
                 self.assertEqual(result.returncode, 2, path)
                 self.assertIn('Camera media must be', result.stderr)
             self.assertFalse((directory / 'avds').exists())
+
+    def test_pof_setup_keeps_the_normal_video_camera_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, HOME=directory, ANDROID_AVD_HOME=directory + '/avds')
+            command = ['/bin/bash', str(ROOT / 'setup_galaxy_s25_avd.sh'), '--dry-run', '--yes',
+                       '--pof-signup', '--no-proxy']
+            result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+            expected = ROOT / 'bumble-signup/camera/phone-video.mp4'
+            self.assertIn(f'Front camera: videofile:{expected}', result.stdout)
+            self.assertNotIn('Front camera: emulated', result.stdout)
 
     def test_sensor_patch_only_changes_readonly_labels(self):
         patcher = module("patch_sensor_labels")

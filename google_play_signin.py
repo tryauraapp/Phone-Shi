@@ -22,12 +22,16 @@ def play_screen_action(xml):
     if ('Complete account setup' in store_texts and
             'Review your account to continue installing apps on Google Play' in store_texts):
         return 'account-setup'
+    if ('Complete account setup' in store_texts and
+            'Add a payment option to complete your account' in store_texts and
+            'Skip' in store_texts):
+        return 'payment-setup'
     if 'Try Google Play Pass' in store_texts:
         return 'play-pass'
     return None
 
 
-def sign_in_action(xml):
+def sign_in_action(xml, listing_marker='Bumble Dating App'):
     """Recognize only the observed account screens, preserving manual security checks."""
     tree = ET.fromstring(xml)
     texts = {n.get('text', '') for n in tree.iter('node')}
@@ -40,7 +44,7 @@ def sign_in_action(xml):
         return 'store-welcome'
     if 'What are you into?' in texts and 'Choose apps categories' in texts and 'Skip' in texts:
         return 'store-recommendations'
-    if any('Bumble Dating App' in text for text in texts):
+    if any(listing_marker in text for text in texts):
         return 'done'
     if any(n.get('package') == 'com.android.vending'
            and n.get('content-desc', '').startswith('Signed in as ')
@@ -76,7 +80,8 @@ def sign_in_action(xml):
     return 'manual'
 
 
-def ensure_sign_in(serial, button_center, timeout=120):
+def ensure_sign_in(serial, button_center, timeout=120, package='com.bumble.app',
+                   listing_marker='Bumble Dating App'):
     if not sys.stdin.isatty():
         raise RuntimeError('Google sign-in requires an interactive terminal')
 
@@ -106,7 +111,7 @@ def ensure_sign_in(serial, button_center, timeout=120):
         if not xml:
             time.sleep(2)
             continue
-        action = sign_in_action(xml)
+        action = sign_in_action(xml, listing_marker)
         if action == 'manual':
             # WebView can expose half-rendered pages briefly between known steps.
             # Wait for a stable screen before asking for manual intervention.
@@ -120,7 +125,7 @@ def ensure_sign_in(serial, button_center, timeout=120):
         else:
             unknown_screen = None
         if action == 'done':
-            print('Google Play is ready on the Bumble listing.', flush=True)
+            print('Google Play is ready on the requested app listing.', flush=True)
             return
         tree = ET.fromstring(xml)
         if action in ('email', 'password') and action not in submitted:
@@ -151,7 +156,7 @@ def ensure_sign_in(serial, button_center, timeout=120):
             print('Skipped optional carrier-based account discovery.', flush=True)
         elif action == 'store-home':
             call('shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
-                 '-d', 'market://details?id=com.bumble.app', '-p', 'com.android.vending')
+                 '-d', f'market://details?id={package}', '-p', 'com.android.vending')
         elif action == 'store-welcome':
             click(xml, 'Get started')
         elif action == 'store-recommendations':
@@ -164,13 +169,14 @@ def ensure_sign_in(serial, button_center, timeout=120):
             tap(controls[0])
             click(read_ui(serial), 'Next')
         elif action == 'agreement':
-            answer = input('Review and accept Google terms on the device yourself, '
-                           'then press Enter (/quit to pause): ')
-            if answer.strip() == '/quit':
-                raise RuntimeError('Google terms awaiting manual acceptance; device retained')
+            click(xml, 'I agree')
+            print('Accepted the explicitly authorized Google terms.', flush=True)
             deadline = time.monotonic() + timeout
         elif action == 'account-setup':
             click(xml, 'Continue')
+        elif action == 'payment-setup':
+            click(xml, 'Skip')
+            print('Skipped optional Google Play payment setup.', flush=True)
         elif action == 'play-pass':
             click(xml, 'Not now')
         elif action == 'recovery':
@@ -187,7 +193,7 @@ def ensure_sign_in(serial, button_center, timeout=120):
             if label == 'ACCEPT':
                 time.sleep(3)
                 call('shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
-                     '-d', 'market://details?id=com.bumble.app', '-p', 'com.android.vending')
+                     '-d', f'market://details?id={package}', '-p', 'com.android.vending')
         elif action in ('manual', 'captcha'):
             answer = input(('Complete the CAPTCHA yourself on the device, ' if action == 'captcha' else
                             'Complete the Google security check or unfamiliar screen on the device, ')
