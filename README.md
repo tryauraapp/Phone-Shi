@@ -1,5 +1,8 @@
 # Phone-Shi
 
+This branch is the VPS V2 edition. Start with [VPS_DEPLOYMENT.md](VPS_DEPLOYMENT.md)
+and run `python3 vps_preflight.py` on the target host before installation.
+
 Create and manage an Android Emulator lab phone with a Galaxy S25 identity
 profile, a private Magisk-patched ramdisk, local diagnostics, optional app
 installation, and a host-side authenticated HTTP proxy. The project also

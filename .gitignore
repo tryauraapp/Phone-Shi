@@ -5,6 +5,7 @@ __pycache__/
 *.py[cod]
 .env
 .env.*
+!.env.vps.example
 *.log
 *.pid
 *.lock

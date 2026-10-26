@@ -3,12 +3,20 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
+
+_host_spec = importlib.util.spec_from_file_location(
+    "_phone_shi_host_platform", Path(__file__).resolve().parents[1] / "host_platform.py")
+_host_module = importlib.util.module_from_spec(_host_spec)
+_host_spec.loader.exec_module(_host_module)
+android_sdk_root = _host_module.android_sdk_root
 import time
 import zipfile
 
@@ -118,7 +126,7 @@ def main():
     args = parser.parse_args()
     if not 5 <= args.seconds <= 600:
         parser.error('sample between five and 600 seconds')
-    sdk = Path(os.environ.get('ANDROID_SDK_ROOT') or Path.home() / 'Library/Android/sdk')
+    sdk = android_sdk_root()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     (output / 'report.json').write_text(json.dumps({'avd': args.avd, 'status': 'checking',

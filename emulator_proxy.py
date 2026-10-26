@@ -9,6 +9,7 @@ import importlib.util
 import json
 import math
 import os
+import platform
 import re
 import shutil
 import secrets
@@ -17,6 +18,12 @@ from pathlib import Path
 import sys
 from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
+
+_host_spec = importlib.util.spec_from_file_location(
+    "_phone_shi_host_platform", Path(__file__).resolve().with_name("host_platform.py"))
+_host_module = importlib.util.module_from_spec(_host_spec)
+_host_spec.loader.exec_module(_host_module)
+android_sdk_root = _host_module.android_sdk_root
 
 DEFAULT_FILE = Path(__file__).resolve().parent / '.local' / 'emulator-proxy'
 
@@ -336,6 +343,10 @@ def graphics_sync_options(identity_args, video, extra):
     """
     if any('GLAsyncSwap' in arg for arg in extra):  # caller chose explicitly
         return []
+    # This workaround was measured on the saved Apple Silicon fixture. Linux
+    # KVM renderers must be measured independently; never inherit it by accident.
+    if platform.system() != 'Darwin':
+        return []
     return ['-feature', '-GLAsyncSwap'] if identity_args or video else []
 
 
@@ -567,7 +578,7 @@ def main():
     env.pop('http_proxy', None)
     # Emulator control services (netsim/gRPC) must talk directly over loopback.
     env['no_grpc_proxy'] = 'localhost,127.0.0.1,::1'
-    sdk = Path(env.get('ANDROID_SDK_ROOT') or env.get('ANDROID_HOME') or Path.home() / 'Library/Android/sdk')
+    sdk = android_sdk_root(env)
     # The private engine lives under the AVD folder, so the emulator cannot infer
     # the SDK from its own path; name it explicitly.
     env.setdefault('ANDROID_SDK_ROOT', str(sdk))

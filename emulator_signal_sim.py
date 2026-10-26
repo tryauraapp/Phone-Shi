@@ -3,12 +3,19 @@
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import importlib.util
 import json
 import os
 from pathlib import Path
 import random
 import shutil
 import subprocess
+
+_host_spec = importlib.util.spec_from_file_location(
+    "_phone_shi_host_platform", Path(__file__).resolve().with_name("host_platform.py"))
+_host_module = importlib.util.module_from_spec(_host_spec)
+_host_spec.loader.exec_module(_host_module)
+android_sdk_root = _host_module.android_sdk_root
 import sys
 import time
 
@@ -68,7 +75,7 @@ def main():
     baseline = config["radio"]["initial_rssi_asu"]
     if not isinstance(baseline, int) or not 14 <= baseline <= 29:
         parser.error("Invalid RSSI in profile")
-    sdk = Path(os.environ.get("ANDROID_SDK_ROOT", os.environ.get("ANDROID_HOME", str(Path.home()/"Library/Android/sdk"))))
+    sdk = android_sdk_root()
     adb = shutil.which("adb") or str(sdk/"platform-tools/adb")
     # Holding the file lock prevents duplicate controllers for one device profile.
     with args.profile.with_suffix(".radio.lock").open("a+") as lock:

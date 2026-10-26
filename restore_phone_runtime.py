@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import math
 import os
 from pathlib import Path
 import shutil
 import subprocess
+
+_host_spec = importlib.util.spec_from_file_location(
+    "_phone_shi_host_platform", Path(__file__).resolve().with_name("host_platform.py"))
+_host_module = importlib.util.module_from_spec(_host_spec)
+_host_spec.loader.exec_module(_host_module)
+android_sdk_root = _host_module.android_sdk_root
 import sys
 import time
 from zoneinfo import ZoneInfo
@@ -153,8 +160,7 @@ def restore_android_settings(adb, serial, avd, timezone):
 
 
 def restore(runtime):
-    sdk = Path(os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME') or
-               Path.home() / 'Library/Android/sdk')
+    sdk = android_sdk_root()
     adb = shutil.which('adb') or str(sdk / 'platform-tools/adb')
     avd, work = runtime['avd'], runtime['work']
     serial = wait_for_boot(adb, avd)

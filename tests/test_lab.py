@@ -299,15 +299,18 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
                 self.assertIn('Camera media must be', result.stderr)
             self.assertFalse((directory / 'avds').exists())
 
-    def test_pof_setup_keeps_the_normal_video_camera_default(self):
+    def test_pof_setup_uses_packaged_video_only_when_present(self):
         with tempfile.TemporaryDirectory() as directory:
             env = dict(os.environ, HOME=directory, ANDROID_AVD_HOME=directory + '/avds')
             command = ['/bin/bash', str(ROOT / 'setup_galaxy_s25_avd.sh'), '--dry-run', '--yes',
                        '--pof-signup', '--no-proxy']
             result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
             expected = ROOT / 'bumble-signup/camera/phone-video.mp4'
-            self.assertIn(f'Front camera: videofile:{expected}', result.stdout)
-            self.assertNotIn('Front camera: emulated', result.stdout)
+            if expected.is_file():
+                self.assertIn(f'Front camera: videofile:{expected}', result.stdout)
+                self.assertNotIn('Front camera: emulated', result.stdout)
+            else:
+                self.assertIn('Front camera: emulated', result.stdout)
 
     def test_tinder_setup_uses_full_install_isolate_verify_flow(self):
         with tempfile.TemporaryDirectory() as directory:

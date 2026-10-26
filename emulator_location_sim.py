@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import fcntl
+import importlib.util
 import json
 import math
 import os
@@ -10,6 +11,12 @@ from pathlib import Path
 import random
 import shutil
 import subprocess
+
+_host_spec = importlib.util.spec_from_file_location(
+    "_phone_shi_host_platform", Path(__file__).resolve().with_name("host_platform.py"))
+_host_module = importlib.util.module_from_spec(_host_spec)
+_host_spec.loader.exec_module(_host_module)
+android_sdk_root = _host_module.android_sdk_root
 import sys
 import time
 
@@ -114,7 +121,7 @@ def main():
             raise RuntimeError('GPS controller exited; inspect location.log')
         print(f'Started GPS controller PID {child.pid}')
         return
-    sdk = Path(os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME') or Path.home() / 'Library/Android/sdk')
+    sdk = android_sdk_root()
     adb = shutil.which('adb') or str(sdk / 'platform-tools/adb')
     with (args.output / 'location.lock').open('a+') as lock:
         try:

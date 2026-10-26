@@ -1,0 +1,16 @@
+[Unit]
+Description=Phone Shi private noVNC viewer
+After=phone-shi-display.service
+Requires=phone-shi-display.service
+
+[Service]
+Type=simple
+User=phone-shi
+Group=phone-shi
+Environment=DISPLAY=:99
+ExecStart=/bin/sh -c '/usr/bin/x11vnc -display :99 -localhost -forever -shared -nopw -rfbport 5900 & exec /usr/bin/websockify --web=/usr/share/novnc/ 127.0.0.1:6080 127.0.0.1:5900'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

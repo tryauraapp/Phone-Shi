@@ -1,0 +1,21 @@
+[Unit]
+Description=Phone Shi V2 control panel
+After=network-online.target phone-shi-display.service
+Wants=network-online.target
+Requires=phone-shi-display.service
+
+[Service]
+Type=simple
+User=phone-shi
+Group=phone-shi
+WorkingDirectory=/opt/phone-shi
+EnvironmentFile=/etc/phone-shi/phone-shi.env
+ExecStart=/usr/bin/python3 /opt/phone-shi/control-panel/server.py --host 127.0.0.1 --port 8790
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
