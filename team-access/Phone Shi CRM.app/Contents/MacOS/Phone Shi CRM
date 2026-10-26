@@ -1,0 +1,60 @@
+#!/bin/zsh
+set -euo pipefail
+
+key="$HOME/.ssh/phone_shi_team"
+host="169.58.133.150"
+crm="http://127.0.0.1:8790/"
+api="http://127.0.0.1:8790/api/bootstrap"
+viewer="http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale"
+log="$HOME/Library/Logs/phone-shi-team-access.log"
+
+notify() {
+  /usr/bin/osascript -e 'on run argv' \
+    -e 'display dialog (item 1 of argv) with title "Phone Shi CRM" buttons {"OK"} default button "OK"' \
+    -e 'end run' -- "$1"
+}
+
+mkdir -p "$HOME/.ssh" "$HOME/Library/Logs"
+chmod 700 "$HOME/.ssh"
+
+if [[ ! -f "$key" ]]; then
+  /usr/bin/ssh-keygen -t ed25519 -a 64 -f "$key" -N '' \
+    -C "phone-shi-team-$(id -un)" >>"$log" 2>&1
+  chmod 600 "$key"
+  chmod 644 "$key.pub"
+  /usr/bin/pbcopy < "$key.pub"
+  notify "Your public access key has been created and copied. Send it to the Phone Shi administrator. After they authorize it, open this app again. Never send the private key file."
+  exit 0
+fi
+
+connected=0
+if /usr/sbin/lsof -nP -iTCP:8790 -sTCP:LISTEN >/dev/null 2>&1; then
+  if /usr/bin/curl -fsS --max-time 3 "$api" | /usr/bin/grep -q 'vmi3698254'; then
+    connected=1
+  else
+    notify "Port 8790 is already being used by another application. Close it, then open Phone Shi CRM again."
+    exit 2
+  fi
+fi
+
+if (( ! connected )); then
+  if ! /usr/bin/ssh -fN -i "$key" -o BatchMode=yes \
+      -o ExitOnForwardFailure=yes -o ServerAliveInterval=30 \
+      -o ServerAliveCountMax=3 -L 8790:127.0.0.1:8790 \
+      -L 6080:127.0.0.1:6080 "phone-shi-team@$host" >>"$log" 2>&1; then
+    notify "Secure CRM access could not start. Make sure your public key has been authorized, then try again."
+    exit 3
+  fi
+fi
+
+for attempt in 1 2 3 4 5; do
+  /usr/bin/curl -fsS --max-time 2 "$api" >/dev/null 2>&1 && break
+  /bin/sleep 1
+done
+if ! /usr/bin/curl -fsS --max-time 3 "$api" >/dev/null 2>&1; then
+  notify "The secure connection started, but the CRM did not become ready. Try again in a moment."
+  exit 4
+fi
+
+/usr/bin/open "$crm"
+/usr/bin/open "$viewer"
