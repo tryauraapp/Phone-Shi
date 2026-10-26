@@ -32,6 +32,11 @@
 #    --no-bumble-signup  skip the final interactive Bumble signup step
 #    --bumble-signup  enable the final signup step (default)
 #    --pof-signup  install POF and enable its guarded capture/resume step
+#    --tinder-signup  install Tinder, isolate it, certify the phone, then open its guarded flow
+#    --tinder-allow-notifications / --tinder-decline-notifications
+#    --tinder-accept-terms --tinder-accept-sms-terms --tinder-accept-house-rules
+#    --tinder-gender Woman|Man --tinder-gender-visibility show|hide
+#    --tinder-relationship-goal VALUE --tinder-allow-location
 #    --no-pof-signup  skip the POF capture/resume step
 #    --profile-name NAME  Bumble first name (separate from the AVD name)
 #    --profile-gender Woman|Man|Nonbinary  Bumble profile gender
@@ -71,6 +76,7 @@ APPS=()
 NO_APPS=0
 PLAY_STORE_BUMBLE=1
 PLAY_STORE_POF=0
+PLAY_STORE_TINDER=0
 PLAY_STORE_DISABLED=0
 FINGERPRINT=
 BATTERY_SIM=1
@@ -86,6 +92,16 @@ INTERACTIVE=-1
 DRY_RUN=0
 BUMBLE_SIGNUP=1
 POF_SIGNUP=0
+TINDER_SIGNUP=0
+TINDER_ALLOW_NOTIFICATIONS=0
+TINDER_DECLINE_NOTIFICATIONS=0
+TINDER_ACCEPT_TERMS=0
+TINDER_ACCEPT_SMS_TERMS=0
+TINDER_ACCEPT_HOUSE_RULES=0
+TINDER_ALLOW_LOCATION=0
+TINDER_GENDER=
+TINDER_GENDER_VISIBILITY=
+TINDER_RELATIONSHIP_GOAL=
 BUMBLE_PROFILE_NAME=
 BUMBLE_PROFILE_GENDER=
 FRONT_CAMERA=emulated
@@ -123,17 +139,31 @@ while (($#)); do
     --vsync) VSYNC=${2:?}; shift ;;
     --app) APPS+=("${2:?}"); shift ;;
     --no-apps) NO_APPS=1 ;;
-    --no-play-store) PLAY_STORE_DISABLED=1; PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0 ;;
+    --no-play-store) PLAY_STORE_DISABLED=1; PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; PLAY_STORE_TINDER=0 ;;
     --no-bumble-signup) BUMBLE_SIGNUP=0 ;;
     --bumble-signup)
-      BUMBLE_SIGNUP=1; POF_SIGNUP=0
-      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_BUMBLE=1; PLAY_STORE_POF=0; fi
+      BUMBLE_SIGNUP=1; POF_SIGNUP=0; TINDER_SIGNUP=0
+      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_BUMBLE=1; PLAY_STORE_POF=0; PLAY_STORE_TINDER=0; fi
       ;;
     --pof-signup)
-      POF_SIGNUP=1; BUMBLE_SIGNUP=0; ROOT_PACKAGES+=(com.pof.android)
-      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_POF=1; PLAY_STORE_BUMBLE=0; fi
+      POF_SIGNUP=1; BUMBLE_SIGNUP=0; TINDER_SIGNUP=0; ROOT_PACKAGES+=(com.pof.android)
+      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_POF=1; PLAY_STORE_BUMBLE=0; PLAY_STORE_TINDER=0; fi
       ;;
     --no-pof-signup) POF_SIGNUP=0 ;;
+    --tinder-signup)
+      TINDER_SIGNUP=1; BUMBLE_SIGNUP=0; POF_SIGNUP=0; ROOT_PACKAGES+=(com.tinder)
+      if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_TINDER=1; PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; fi
+      ;;
+    --no-tinder-signup) TINDER_SIGNUP=0 ;;
+    --tinder-allow-notifications) TINDER_ALLOW_NOTIFICATIONS=1; TINDER_DECLINE_NOTIFICATIONS=0 ;;
+    --tinder-decline-notifications) TINDER_DECLINE_NOTIFICATIONS=1; TINDER_ALLOW_NOTIFICATIONS=0 ;;
+    --tinder-accept-terms) TINDER_ACCEPT_TERMS=1 ;;
+    --tinder-accept-sms-terms) TINDER_ACCEPT_SMS_TERMS=1 ;;
+    --tinder-accept-house-rules) TINDER_ACCEPT_HOUSE_RULES=1 ;;
+    --tinder-allow-location) TINDER_ALLOW_LOCATION=1 ;;
+    --tinder-gender) TINDER_GENDER=${2:?}; shift ;;
+    --tinder-gender-visibility) TINDER_GENDER_VISIBILITY=${2:?}; shift ;;
+    --tinder-relationship-goal) TINDER_RELATIONSHIP_GOAL=${2:?}; shift ;;
     --profile-name) BUMBLE_PROFILE_NAME=${2:?}; shift ;;
     --profile-gender) BUMBLE_PROFILE_GENDER=${2:?}; shift ;;
     --camera-video) FRONT_CAMERA="videofile:${2:?}"; shift ;;
@@ -167,7 +197,13 @@ done
 
 source "$SCRIPT_DIR/setup_options.sh" || exit 1
 configure_setup || exit 2
-if ((NO_APPS)); then PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; fi
+case "$TINDER_GENDER" in ''|Woman|Man) ;; *) echo 'Tinder gender must be Woman or Man.' >&2; exit 2 ;; esac
+case "$TINDER_GENDER_VISIBILITY" in ''|show|hide) ;; *) echo 'Tinder gender visibility must be show or hide.' >&2; exit 2 ;; esac
+case "$TINDER_RELATIONSHIP_GOAL" in
+  ''|'Long-term partner'|'Long-term, open to short'|'Short-term, open to long'|'Short-term fun'|'New friends'|'Still figuring it out') ;;
+  *) echo 'Unsupported Tinder relationship goal.' >&2; exit 2 ;;
+esac
+if ((NO_APPS)); then PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; PLAY_STORE_TINDER=0; fi
 WORK="$HOME/galaxy_s25_avd_backups/$NAME/setup"
 if [[ -z "$NODEMAVEN_KEY_FILE" ]]; then
   NODEMAVEN_KEY_FILE="$SCRIPT_DIR/.local/nodemaven-api-key"
@@ -221,13 +257,25 @@ if ((DRY_RUN)); then
   else
     printf 'POF installation: Google Play skipped\n'
   fi
+  if ((PLAY_STORE_TINDER)); then
+    printf 'Tinder flow: finish phone → Google Play Install (held closed) → isolate → reboot → verify → guarded first launch\n'
+  else
+    printf 'Tinder installation: Google Play skipped\n'
+  fi
   printf 'Local app bundles: explicit --app files only; no automatic APK/XAPK installation\n'
   printf 'Bumble signup: %s (requires installed Bumble and a terminal; prompts after device setup)\n' "$BUMBLE_SIGNUP"
   if ((BUMBLE_SIGNUP)); then
     printf 'Bumble profile name: %s\nBumble profile gender: %s\nBumble photos: 4 random images from the supplied photo pool (video excluded)\nPhone number: requested only at Bumble phone entry\n' "${BUMBLE_PROFILE_NAME:-ask at signup}" "${BUMBLE_PROFILE_GENDER:-ask at signup}"
   fi
   printf 'POF guarded signup capture: %s (permissions only; profile, terms, SMS and photos pause)\n' "$POF_SIGNUP"
-  if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
+  printf 'Tinder guarded signup: %s (terms, SMS, identity details and human verification remain explicit/manual)\n' "$TINDER_SIGNUP"
+  if ((TINDER_SIGNUP)); then
+    printf 'Tinder choices: notifications=%s gender=%s visibility=%s goal=%s location=%s\n' \
+      "$([[ $TINDER_ALLOW_NOTIFICATIONS == 1 ]] && echo allow || { [[ $TINDER_DECLINE_NOTIFICATIONS == 1 ]] && echo decline || echo ask; })" \
+      "${TINDER_GENDER:-ask}" "${TINDER_GENDER_VISIBILITY:-ask}" \
+      "${TINDER_RELATIONSHIP_GOAL:-ask}" "$TINDER_ALLOW_LOCATION"
+  fi
+  if ((BUMBLE_SIGNUP || POF_SIGNUP || TINDER_SIGNUP)); then
     printf 'Signup safeguard: required setup artifacts, checker result and live phone state must certify first\n'
   fi
   exit 0
@@ -249,7 +297,7 @@ else
   B= DIM= RED= GRN= YEL= BLU= MAG= CYN= X=
 fi
 STEP=0
-STEPS=$((17 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + BATTERY_SIM + 2*SIGNAL_SIM + ROOT_ISOLATION + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + (BUMBLE_SIGNUP || POF_SIGNUP) + BUMBLE_SIGNUP + POF_SIGNUP + ROOT_ISOLATION*(2 + SIGNAL_SIM)))
+STEPS=$((17 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + PLAY_STORE_TINDER + BATTERY_SIM + 2*SIGNAL_SIM + ROOT_ISOLATION + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + (BUMBLE_SIGNUP || POF_SIGNUP || TINDER_SIGNUP) + BUMBLE_SIGNUP + POF_SIGNUP + TINDER_SIGNUP + ROOT_ISOLATION*(2 + SIGNAL_SIM)))
 log()  { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"; }
 step() { STEP=$((STEP+1)); printf '\n %s[%d/%d]%s %s%s%s\n' "$CYN" "$STEP" "$STEPS" "$X" "$B" "$*" "$X"; log "== $*"; }
 info() { printf '   %s›%s %s\n' "$CYN" "$X" "$*"; log "info: $*"; }
@@ -321,11 +369,15 @@ verify_cpu_architecture() {
   return 0
 }
 
-ensure_cellular_network() {
-  python3 "$SCRIPT_DIR/setup_network.py" --serial "$SERIAL" >>"$LOG" 2>&1 || die "LTE cellular data is not validated; see $LOG."
+try_cellular_network() {
+  python3 "$SCRIPT_DIR/setup_network.py" --serial "$SERIAL" >>"$LOG" 2>&1 || return 1
   if ((NETWORK_PROFILE_INSTALLED)); then
-    dsu 'sh /data/adb/service.d/96-s25-network.sh' >>"$LOG" 2>&1 || die "LTE network boot service failed."
+    dsu 'sh /data/adb/service.d/96-s25-network.sh' >>"$LOG" 2>&1 || return 1
   fi
+}
+
+ensure_cellular_network() {
+  try_cellular_network || die "LTE cellular data is not validated; see $LOG."
 }
 
 launch() { # launch [extra emulator args...]
@@ -338,7 +390,16 @@ launch() { # launch [extra emulator args...]
   spin_wait "Waiting for guest adbd" 240 guest_up || die "Guest on $SERIAL never identified as $NAME."
   spin_wait "Booting Android" 600 booted || die "Android did not finish booting."
   verify_cpu_architecture
-  ensure_cellular_network
+  if ! try_cellular_network; then
+    warn "Initial Android boot did not validate LTE; retrying once after a guest reboot"
+    adb -s "$SERIAL" reboot >>"$LOG" 2>&1 || die "LTE recovery reboot failed."
+    sleep 3
+    spin_wait "Reconnecting after LTE recovery" 240 guest_up || die "Guest did not return after LTE recovery reboot."
+    spin_wait "Booting after LTE recovery" 600 booted || die "Android did not finish the LTE recovery reboot."
+    verify_cpu_architecture
+    try_cellular_network || die "LTE cellular data is still not validated after one recovery reboot; see $LOG."
+    ok "Validated LTE after the bounded first-boot recovery"
+  fi
   set_location
   ok "$NAME is up as $SERIAL"
 }
@@ -405,7 +466,8 @@ for f in setup_su.py setup_magisk.py setup_ui.py phone_setup_guard.py generate_l
 done
 (( !BUMBLE_SIGNUP )) || [[ -f "$SCRIPT_DIR/bumble_signup.py" ]] || die 'Missing bumble_signup.py helper.'
 (( !POF_SIGNUP )) || [[ -f "$SCRIPT_DIR/pof_signup.py" ]] || die 'Missing pof_signup.py helper.'
-if ((PLAY_STORE_BUMBLE || PLAY_STORE_POF)); then
+(( !TINDER_SIGNUP )) || [[ -f "$SCRIPT_DIR/tinder_signup.py" ]] || die 'Missing tinder_signup.py helper.'
+if ((PLAY_STORE_BUMBLE || PLAY_STORE_POF || PLAY_STORE_TINDER)); then
   for f in play_store_install.py google_play_signin.py; do
     [[ -f "$SCRIPT_DIR/$f" ]] || die "Missing $f helper."
   done
@@ -944,6 +1006,18 @@ if ((PLAY_STORE_POF)); then
   fi
 fi
 
+if ((PLAY_STORE_TINDER)); then
+  step "Installing Tinder from Google Play without opening it"
+  if ((INTERACTIVE == 0)) || [[ ! -t 0 ]]; then
+    warn "Google Play sign-in awaits an interactive terminal; no local Tinder bundle will be installed."
+    printf '   Resume Google Play: python3 %q --serial %q --avd %q --app tinder --sign-in --install-only\n' "$SCRIPT_DIR/play_store_install.py" "$SERIAL" "$NAME"
+  else
+    python3 "$SCRIPT_DIR/play_store_install.py" --serial "$SERIAL" --avd "$NAME" --app tinder --sign-in --install-only ||
+      die "Google Play Tinder installation paused or failed; the phone is retained. Resume with play_store_install.py --app tinder --sign-in --install-only."
+    ok "Tinder installed by Google Play and held closed until final verification"
+  fi
+fi
+
 if ((ROOT_ISOLATION)); then
   step "Configuring Magisk mount isolation for installed test apps"
   isolated_packages=0
@@ -1046,7 +1120,7 @@ PY
   fi
 fi
 
-if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
+if ((BUMBLE_SIGNUP || POF_SIGNUP || TINDER_SIGNUP)); then
   step "Certifying the full phone setup before app signup"
   GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK")
   if ((BUMBLE_SIGNUP)); then
@@ -1056,6 +1130,10 @@ if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
   if ((POF_SIGNUP)); then
     GUARD_ARGS+=(--package com.pof.android)
     adb -s "$SERIAL" shell am force-stop com.pof.android >>"$LOG" 2>&1
+  fi
+  if ((TINDER_SIGNUP)); then
+    GUARD_ARGS+=(--package com.tinder)
+    adb -s "$SERIAL" shell am force-stop com.tinder >>"$LOG" 2>&1
   fi
   python3 "$SCRIPT_DIR/phone_setup_guard.py" "${GUARD_ARGS[@]}" >>"$LOG" 2>&1 ||
     die "Full phone setup verification failed; app signup is blocked. Review $LOG."
@@ -1109,6 +1187,38 @@ if ((POF_SIGNUP)); then
   fi
   printf '   Resume POF: python3 %q ' "$SCRIPT_DIR/pof_signup.py"
   printf '%q ' "${POF_ARGS[@]}"
+  printf '\n'
+fi
+
+if ((TINDER_SIGNUP)); then
+  step "Tinder guarded signup"
+  TINDER_ARGS=(--serial "$SERIAL" --avd "$NAME" --output "$WORK/tinder-signup")
+  if ! adb -s "$SERIAL" shell pm path com.tinder 2>/dev/null | grep -q '^package:'; then
+    warn "Tinder is not installed; signup is blocked until Google Play installation and isolation complete."
+  else
+    adb -s "$SERIAL" shell monkey -p com.tinder -c android.intent.category.LAUNCHER 1 >>"$LOG" 2>&1 ||
+      die "Tinder did not launch after final phone verification."
+    sleep 2
+    if ((TINDER_ACCEPT_TERMS && TINDER_ACCEPT_SMS_TERMS && TINDER_ACCEPT_HOUSE_RULES)) &&
+       [[ -n "$TINDER_GENDER" && -n "$TINDER_GENDER_VISIBILITY" && -n "$TINDER_RELATIONSHIP_GOAL" ]] &&
+       ((TINDER_ALLOW_NOTIFICATIONS || TINDER_DECLINE_NOTIFICATIONS)); then
+      TINDER_ARGS+=(--run-signup --accept-terms --accept-sms-terms --accept-house-rules
+        --signup-gender "$TINDER_GENDER" --signup-gender-visibility "$TINDER_GENDER_VISIBILITY"
+        --signup-relationship-goal "$TINDER_RELATIONSHIP_GOAL" --pause-at-private-input)
+      ((TINDER_ALLOW_NOTIFICATIONS)) && TINDER_ARGS+=(--allow-notifications)
+      ((TINDER_DECLINE_NOTIFICATIONS)) && TINDER_ARGS+=(--decline-notifications)
+      ((TINDER_ALLOW_LOCATION)) && TINDER_ARGS+=(--allow-location)
+    fi
+    python3 "$SCRIPT_DIR/tinder_signup.py" "${TINDER_ARGS[@]}" || tinder_rc=$?
+    tinder_rc=${tinder_rc:-0}
+    if ((tinder_rc == 2)); then
+      warn "Tinder paused at its first explicit choice or manual boundary, as designed."
+    elif ((tinder_rc != 0)); then
+      die "Tinder inspection failed; phone setup is retained. Resume with tinder_signup.py."
+    fi
+  fi
+  printf '   Resume Tinder: python3 %q ' "$SCRIPT_DIR/tinder_signup.py"
+  printf '%q ' "${TINDER_ARGS[@]}"
   printf '\n'
 fi
 

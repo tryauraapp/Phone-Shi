@@ -109,6 +109,38 @@ def choose_tmobile(isps):
     return selected[0]
 
 
+def canonical(value):
+    return re.sub(r"[^a-z0-9]", "", str(value).lower())
+
+
+def result_list(response, legacy_key):
+    """Accept both the current paginated API and its former named-list shape."""
+    items = response.get("results")
+    if items is None:
+        items = response.get(legacy_key, [])
+    return items if isinstance(items, list) else []
+
+
+def choose_named(items, name, kind, parent=None):
+    """Select one exact API location without silently broadening its scope."""
+    wanted = canonical(name)
+    matches = []
+    for item in items:
+        if not isinstance(item, dict) or canonical(item.get("name")) != wanted:
+            continue
+        if parent:
+            observed = item.get("region") or {}
+            if canonical(observed.get("code")) != canonical(parent.get("code")):
+                continue
+        matches.append(item)
+    if len(matches) != 1:
+        raise NodeMavenError(f"NodeMaven did not return one exact {kind} match for {name}.")
+    code = str(matches[0].get("code", "")).strip()
+    if not code or not re.fullmatch(r"[a-zA-Z0-9_]+", code):
+        raise NodeMavenError(f"NodeMaven returned an invalid {kind} code.")
+    return matches[0]
+
+
 def base_credentials(key, request=api_request):
     account = request(key, "GET", "/users/me")
     username = str(account.get("proxy_username", "")).strip()
@@ -120,8 +152,27 @@ def base_credentials(key, request=api_request):
     return username, password
 
 
-def provision(key, request=api_request):
+def provision(key, request=api_request, *, region=None, city=None):
+    if city and not region:
+        raise NodeMavenError("City targeting requires a region.")
     username, password = base_credentials(key, request)
+    selected_region = selected_city = None
+    if region:
+        regions = request(key, "GET", "/locations/regions/", query={
+            "limit": 1000,
+            "offset": 0,
+            "country__code": "us",
+            "name": region,
+        })
+        selected_region = choose_named(result_list(regions, "regions"), region, "region")
+    if city:
+        cities = request(key, "GET", "/locations/cities/", query={
+            "limit": 1000,
+            "offset": 0,
+            "country__code": "us",
+            "name": city,
+        })
+        selected_city = choose_named(result_list(cities, "cities"), city, "city", selected_region)
     locations = request(key, "GET", "/locations/isps/", query={
         "limit": 1000,
         "offset": 0,
@@ -130,12 +181,17 @@ def provision(key, request=api_request):
         "ipv4_only": "true",
         "name": "T-Mobile",
     })
-    isp = choose_tmobile(locations.get("isps", []))
+    isp = choose_tmobile(result_list(locations, "isps"))
+    targeting = {"country": "us", "isp": isp["code"]}
+    if selected_region:
+        targeting["region"] = selected_region["code"]
+    if selected_city:
+        targeting["city"] = selected_city["code"]
     config = {
         "proxy_type": "mobile",
         "protocol": "http",
         "session_mode": "no_rotation",
-        "targeting": {"country": "us", "isp": isp["code"]},
+        "targeting": targeting,
     }
     checked = request(key, "POST", "/proxy-checks/location", body={
         "credentials": {"username": username, "password": password},
@@ -154,12 +210,21 @@ def provision(key, request=api_request):
             or checked.get("proxy_type") != "mobile"
             or not checked.get("exit_ip")):
         raise NodeMavenError("NodeMaven could not verify a US T-Mobile mobile exit; no proxy was saved.")
+    if selected_region and canonical(observed.get("region")) != canonical(selected_region["name"]):
+        raise NodeMavenError("NodeMaven could not verify the requested region; no proxy was saved.")
+    if selected_city and canonical(observed.get("city")) != canonical(selected_city["name"]):
+        raise NodeMavenError("NodeMaven could not verify the requested city; no proxy was saved.")
 
     session = secrets.token_hex(8)
     # NodeMaven calls its highest-quality mode “Quality” in the dashboard but
     # requires the internal username spelling filter-medium. filter-high is not
     # a documented parameter.
-    full_username = (f"{username}-country-us-isp-{isp['code']}-type-mobile-"
+    location_parts = "-country-us"
+    if selected_region:
+        location_parts += f"-region-{selected_region['code']}"
+    if selected_city:
+        location_parts += f"-city-{selected_city['code']}"
+    full_username = (f"{username}{location_parts}-isp-{isp['code']}-type-mobile-"
                      f"sid-{session}-norotate-true-filter-medium")
     proxy = (f"http://{quote(full_username, safe='')}:{quote(password, safe='')}"
              "@gate.nodemaven.com:8080")
@@ -174,6 +239,14 @@ def provision(key, request=api_request):
         "session_mode": "no_rotation",
         "quality_mode": "Quality",
         "username_filter_parameter": "filter-medium",
+        "targeting": {
+            "country": {"code": "us", "name": "United States"},
+            "region": ({"code": selected_region["code"], "name": selected_region["name"]}
+                       if selected_region else None),
+            "city": ({"code": selected_city["code"], "name": selected_city["name"]}
+                     if selected_city else None),
+            "isp": {"code": isp["code"], "name": isp["name"]},
+        },
         "verified_exit_ip": checked.get("exit_ip"),
         "verified_observed": observed,
         "verified_at": checked.get("checked_at"),
@@ -215,12 +288,14 @@ def main():
     parser.add_argument("--avd", required=True)
     parser.add_argument("--key-file", default=str(DEFAULT_KEY_FILE))
     parser.add_argument("--output")
+    parser.add_argument("--region", help="Exact NodeMaven US region name, for example Texas")
+    parser.add_argument("--city", help="Exact city within --region, for example Houston")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9_.-]+", args.avd):
         parser.error("Invalid AVD name.")
     output = Path(args.output) if args.output else phone_proxy_path(args.avd)
     try:
-        proxy, metadata = provision(read_api_key(args.key_file))
+        proxy, metadata = provision(read_api_key(args.key_file), region=args.region, city=args.city)
         private_write(output, proxy + "\n")
         private_write(output.with_suffix(".json"), json.dumps(metadata, indent=2) + "\n")
     except (OSError, NodeMavenError) as exc:

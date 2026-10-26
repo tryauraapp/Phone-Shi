@@ -12,6 +12,16 @@ import emulator_proxy as proxy
 
 
 class ProxyTests(unittest.TestCase):
+    def test_camera_viewer_check_uses_surface_texture_mode(self):
+        process = MagicMock()
+        with patch.object(proxy.asyncio, 'create_subprocess_exec',
+                          new_callable=AsyncMock, return_value=process) as create:
+            self.assertIs(asyncio.run(proxy.start_camera_check(
+                'Phone_A', viewer=True, serial='emulator-5554')), process)
+        arguments = create.await_args.args
+        self.assertIn('--mode', arguments)
+        self.assertEqual(arguments[arguments.index('--mode') + 1], 'texture')
+
     def test_launch_refreshes_private_ramdisk_after_root_patch(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -43,7 +53,8 @@ class ProxyTests(unittest.TestCase):
     def test_location_uses_authenticated_proxy_tunnel_and_validates_result(self):
         data = dict(success=True, ip='192.0.2.8', latitude=42.3314,
                     longitude=-83.0457, timezone={'id': 'America/Detroit'},
-                    city='Detroit', region='Michigan', country='United States')
+                    city='Detroit', region='Michigan', country='United States',
+                    country_code='US', connection={'isp': 'T-Mobile USA', 'asn': 21928})
         with patch.object(proxy.http.client, 'HTTPSConnection') as connection:
             response = connection.return_value.getresponse.return_value
             response.status = 200
@@ -54,6 +65,9 @@ class ProxyTests(unittest.TestCase):
                 'ipwho.is', 443, headers={'Proxy-Authorization': 'Basic dXNlcjpwYXNzd29yZA=='})
             self.assertEqual(result['timezone'], 'America/Detroit')
             self.assertEqual(result['latitude'], data['latitude'])
+            self.assertEqual(result['city'], 'Detroit')
+            self.assertEqual(result['country_code'], 'us')
+            self.assertEqual(result['isp'], 'T-Mobile USA')
             self.assertNotIn('password', json.dumps(result))
             for changes in ({'success': False}, {'latitude': 91}, {'longitude': float('nan')},
                             {'timezone': {'id': 'invalid/zone'}}, {'ip': 'invalid'}):
@@ -80,11 +94,108 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(proxy.phone_proxy_file('Phone_A', '/private/backups'),
                          Path('/private/backups/Phone_A/setup/nodemaven-proxy'))
 
+    def test_certified_phone_gets_runtime_restorer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            setup = Path(directory) / 'Phone_A/setup'
+            setup.mkdir(parents=True)
+            self.assertIsNone(proxy.runtime_restore_command('Phone_A', directory))
+            (setup / 'setup-complete.json').write_text('{}')
+            command = proxy.runtime_restore_command('Phone_A', directory)
+            self.assertIn('restore_phone_runtime.py', command[2])
+            self.assertEqual(command[-2:], ['--backups', directory])
+
+    def test_certified_proxy_binding_rejects_drift(self):
+        expected = dict(ip='192.0.2.8', latitude=33.7486, longitude=-84.388,
+                        timezone='America/New_York')
+        with tempfile.TemporaryDirectory() as directory:
+            setup = Path(directory) / 'Phone_A/setup'
+            setup.mkdir(parents=True)
+            (setup / 'setup-complete.json').write_text('{}')
+            (setup / 'proxy-location.json').write_text(json.dumps(expected))
+            with patch.object(proxy, 'locate', return_value=dict(expected)):
+                self.assertEqual(proxy.validate_proxy_binding('http://host:80', 'Phone_A', directory),
+                                 expected)
+            with patch.object(proxy, 'locate', return_value=dict(expected, ip='192.0.2.9')):
+                with self.assertRaisesRegex(ValueError, 'legacy proxy exit IP changed'):
+                    proxy.validate_proxy_binding('http://host:80', 'Phone_A', directory)
+            with self.assertRaisesRegex(ValueError, 'cannot launch without'):
+                proxy.validate_proxy_binding('', 'Phone_A', directory)
+
+    def test_city_targeted_mobile_proxy_can_rotate_inside_saved_area(self):
+        expected = dict(ip='192.0.2.8', latitude=29.7604, longitude=-95.3698,
+                        timezone='America/Chicago')
+        current = dict(expected, ip='192.0.2.9', latitude=29.77, longitude=-95.35,
+                       city='Houston', region='Texas', country='United States',
+                       country_code='us', isp='T-Mobile USA, Inc.')
+        metadata = {'targeting': {
+            'country': {'code': 'us', 'name': 'United States'},
+            'region': {'code': 'texas', 'name': 'Texas'},
+            'city': {'code': 'houston', 'name': 'Houston'},
+            'isp': {'code': 't_mobile_usa', 'name': 'T-Mobile USA'},
+        }}
+        with tempfile.TemporaryDirectory() as directory:
+            setup = Path(directory) / 'Phone_A/setup'
+            setup.mkdir(parents=True)
+            (setup / 'setup-complete.json').write_text('{}')
+            (setup / 'proxy-location.json').write_text(json.dumps(expected))
+            (setup / 'nodemaven-proxy.json').write_text(json.dumps(metadata))
+            with patch.object(proxy, 'locate', return_value=current):
+                self.assertEqual(proxy.validate_proxy_binding(
+                    'http://host:80', 'Phone_A', directory), current)
+            nearby = dict(current, ip='192.0.2.10', city='Sugar Land',
+                          latitude=29.6197, longitude=-95.6349)
+            with patch.object(proxy, 'locate', return_value=nearby):
+                self.assertEqual(proxy.validate_proxy_binding(
+                    'http://host:80', 'Phone_A', directory), nearby)
+            with patch.object(proxy, 'locate', return_value=dict(
+                    current, city='Norfolk', region='Virginia', timezone='America/New_York')):
+                with self.assertRaisesRegex(ValueError, 'time zone|region'):
+                    proxy.validate_proxy_binding('http://host:80', 'Phone_A', directory)
+            with patch.object(proxy, 'locate', return_value=dict(
+                    current, city='Austin', latitude=30.2672, longitude=-97.7431)):
+                with self.assertRaisesRegex(ValueError, 'GPS radius'):
+                    proxy.validate_proxy_binding('http://host:80', 'Phone_A', directory)
+            with patch.object(proxy, 'locate', return_value=dict(current, isp='Example Mobile')):
+                with self.assertRaisesRegex(ValueError, 'carrier'):
+                    proxy.validate_proxy_binding('http://host:80', 'Phone_A', directory)
+
+    def test_certified_phone_rejects_state_replacing_launch_flags(self):
+        proxy.validate_certified_launch_options(['-no-window', '-verbose'])
+        for arguments in (['-wipe-data'], ['-camera-front', 'emulated'],
+                          ['-gpu', 'swiftshader_indirect'],
+                          ['-feature', 'GLAsyncSwap']):
+            with self.assertRaisesRegex(ValueError, 'replace certified'):
+                proxy.validate_certified_launch_options(arguments)
+
+    def test_saved_proxy_timezone_is_applied_and_conflicts_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            setup = Path(directory) / 'Phone_A/setup'
+            setup.mkdir(parents=True)
+            (setup / 'proxy-location.json').write_text(json.dumps({
+                'latitude': 33.7486, 'longitude': -84.388,
+                'timezone': 'America/New_York', 'label': 'Atlanta'}))
+            self.assertEqual(proxy.timezone_options('Phone_A', [], directory),
+                             ['-timezone', 'America/New_York'])
+            self.assertEqual(proxy.timezone_options(
+                'Phone_A', ['-timezone', 'America/New_York'], directory), [])
+            with self.assertRaisesRegex(ValueError, 'conflicts'):
+                proxy.timezone_options('Phone_A', ['-timezone', 'Asia/Makassar'], directory)
+
+    def test_proxied_phone_requires_valid_saved_location_at_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            setup = Path(directory) / 'Phone_A/setup'
+            setup.mkdir(parents=True)
+            with self.assertRaisesRegex(ValueError, 'missing'):
+                proxy.timezone_options('Phone_A', [], directory, required=True)
+            (setup / 'proxy-location.json').write_text('{"timezone":"invalid/zone"}')
+            with self.assertRaisesRegex(ValueError, 'invalid'):
+                proxy.timezone_options('Phone_A', [], directory, required=True)
+
     def test_launch_passes_explicit_host_proxy_without_proxying_control_services(self):
         with patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--proxy',
                                 '192.0.2.1:8080:user:password']), patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:
             proxy.main()
-        command, env, upstream, diagnostic = launch.call_args.args
+        command, env, upstream, diagnostic, runtime_command = launch.call_args.args
         self.assertEqual(upstream, 'http://user:password@192.0.2.1:8080')
         self.assertNotIn('password', ' '.join(command))
         self.assertNotIn('http_proxy', env)
@@ -92,6 +203,7 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(env['no_grpc_proxy'], 'localhost,127.0.0.1,::1')
         self.assertIn('Test', command)
         self.assertIsInstance(diagnostic, proxy.RelayDiagnostics)
+        self.assertIsNone(runtime_command)
 
     def test_diagnostic_file_is_private_jsonl(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -184,6 +296,7 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
     async def test_proxy_option_precedes_qemu_passthrough(self):
         server = MagicMock()
         server.sockets[0].getsockname.return_value = ('127.0.0.1', 23456)
+        server.wait_closed = AsyncMock()
         process = MagicMock(returncode=0)
         process.wait = AsyncMock(return_value=0)
         command = ['/sdk/emulator', '-avd', 'Test', '-qemu', '-global', 'virtio-net-device.mac=06:11:22:33:44:55']
@@ -193,6 +306,25 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         arguments = launch.call_args.args
         self.assertLess(arguments.index('-http-proxy'), arguments.index('-qemu'))
         self.assertEqual(arguments[-2:], ('-global', 'virtio-net-device.mac=06:11:22:33:44:55'))
+
+    async def test_runtime_restore_failure_closes_emulator(self):
+        emulator = MagicMock(returncode=None)
+        emulator_done = asyncio.Event()
+        async def wait_emulator():
+            await emulator_done.wait()
+            return 0
+        def stop_emulator():
+            emulator.returncode = 0
+            emulator_done.set()
+        emulator.wait = AsyncMock(side_effect=wait_emulator)
+        emulator.terminate = MagicMock(side_effect=stop_emulator)
+        restorer = MagicMock(returncode=4)
+        restorer.wait = AsyncMock(return_value=4)
+        with patch.object(proxy.asyncio, 'create_subprocess_exec', new_callable=AsyncMock,
+                          side_effect=[emulator, restorer]):
+            result = await proxy.launch(['/sdk/emulator'], {}, '', None, ['/restore', '--avd', 'Test'])
+        self.assertEqual(result, 4)
+        emulator.terminate.assert_called_once()
 
     async def test_http10_success_normalized_and_tunnel_preserves_bytes(self):
         observed = []

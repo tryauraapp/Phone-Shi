@@ -6,11 +6,13 @@ state is retained.
 
 | Observed screen | Recorded behavior |
 | --- | --- |
-| Android notification permission | Optional decline with `--decline-notifications` |
+| Android notification permission | Exact allow/decline choice with `--allow-notifications` or `--decline-notifications` |
 | Tinder welcome, terms and login choices | Pause for method choice and terms confirmation |
 | Google number hint | Recognized; dismiss manually to avoid using simulated SIM number |
 | US +1 phone entry | `--enter-phone` privately retrieves, fills, and verifies the number; does not tap Next |
+| Prefilled US +1 phone entry | `--submit-phone --accept-sms-terms` verifies ten private digits and submits without logging them |
 | Six-digit SMS code | `--enter-code` retrieves the code privately, checks read-back, then submits Next; stops if the screen changes |
+| Account recovery email | Recognized manual boundary: choose direct email entry or Google linking; neither is selected automatically |
 | Invalid SMS code | Recognized rejection; stops without retrying or requesting another SMS |
 | Welcome / House Rules | Pause for explicit user agreement; `--agree-house-rules` is a separate opt-in action |
 | First name | `--enter-name` privately prompts for the user-supplied name, verifies it, then taps Next; never invents a name |
@@ -69,6 +71,9 @@ check, face/photo/video verification, an invalid SMS code, an unknown screen,
 or the recorded locked-account video-selfie screen. It never taps **Get
 verified**, never attempts to solve or bypass a challenge, and never retries a
 rejected verification code. A manual-stop exit uses status 2.
+It may start without photos and will then stop at the photo page; supplying any
+photos still requires exactly four. `--pause-at-private-input` stops before
+phone, SMS, name, and birth-date entry so those values can be handled directly.
 
 Lifestyle and personality questions are single-choice: the runner chooses one
 answer from each reviewed option group. Interests are multi-choice: it chooses

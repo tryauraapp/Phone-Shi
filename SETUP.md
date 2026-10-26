@@ -76,10 +76,15 @@ Run from this directory:
 
 Host-side proxy: setup automatically reads `.local/emulator-proxy` when present.
 If `.local/nodemaven-api-key` exists and no explicit proxy option is supplied,
-setup instead provisions a separate no-rotation US Mobile/T-Mobile NodeMaven session
+setup instead provisions a separate city-targeted, no-rotation US Mobile/T-Mobile NodeMaven session
 for the new phone, verifies the targeted exit through NodeMaven, and stores the
 private result in that phone's backup. Future `emulator_proxy.py --avd NAME`
-launches select the same per-phone proxy automatically. The API key and saved
+launches select the same per-phone proxy automatically and apply its saved
+proxy-derived time zone on every cold start. A changed mobile exit IP is allowed
+when the carrier, state and time zone still match and its reported coordinates
+remain within 100 miles of the saved home centre; nearby municipality labels do
+not fail the check. A proxied phone refuses to launch if that location record is
+missing, invalid, or conflicts with an explicit `-timezone` argument. The API key and saved
 proxy files must remain owner-readable only and are never copied into the AVD.
 This local, Git-ignored file contains one line: `host:port:user:password` or
 `http://user:password@host:port`. Keep its permissions at `600`. The configured
@@ -202,6 +207,31 @@ begins. A non-interactive setup can therefore certify the phone before later
 app installation, while the helper remains blocked until package isolation is
 also ready. A missing, stale or app-mismatched certificate stops the helper
 with no signup tap.
+
+Every later cold start must use `emulator_proxy.py --avd NAME`. For a certified
+phone, the launcher verifies that the live proxy remains on the saved carrier,
+state, time zone and geographic boundary; a city-targeted mobile IP may rotate.
+It then launches with the private
+engine, serial, network identity, ramdisk, camera profile, graphics workaround
+and saved time zone. Once Android boots, `restore_phone_runtime.py` revalidates
+the certificate and live device identity, restores LTE, checks the persistent
+battery service, restores the saved brightness/timeout/haptics/font choices,
+enables location, and starts fresh per-phone signal and bounded-GPS controllers.
+Phones with a configured video camera also run the saved Camera2 motion probe;
+the saved flag or first frame alone is not accepted as playback proof.
+The emulator is closed if restoration fails; a partly restored phone is never
+reported ready. Android Studio's direct play button bypasses this startup gate.
+State-replacing cold-start flags such as `-wipe-data`, snapshots, alternate
+camera/GPU/data images, identity/network overrides, or a GL sync override are
+rejected for certified phones; ordinary UI/logging flags remain available.
+
+For Tinder, `--tinder-signup` now joins Google Play install, isolation,
+certification and first launch to the same phone setup. Reviewed onboarding
+choices are explicit setup flags: notification allow/decline, Tinder Terms,
+SMS terms, House Rules, gender and visibility, relationship goal, and foreground
+location. When all are supplied, the runner applies the learned screens and
+pauses before private phone, SMS, name and birth-date entry. Consents are never
+silently reused for another account.
 
 After the final device check, setup launches the interactive Bumble signup
 wizard when Bumble is installed. It reuses the profile name and gender chosen

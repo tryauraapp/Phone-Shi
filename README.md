@@ -169,7 +169,8 @@ proxy option is supplied, setup performs the following before creating the AVD:
 1. Reads the account's proxy credentials through the NodeMaven API.
 2. Looks up current US Mobile inventory and selects the T-Mobile carrier code,
    preferring inventory marked High.
-3. Requests a unique no-rotation session and uses NodeMaven's Quality filter.
+3. Requests a unique no-rotation session targeted to the selected city and uses
+   NodeMaven's Quality filter.
 4. Uses NodeMaven's proxy check to require a matching US/T-Mobile exit.
 5. Saves the private proxy under the phone's backup `setup` directory with
    permissions `600`. Later `emulator_proxy.py --avd NAME` launches select it
@@ -183,9 +184,12 @@ or mismatched exit aborts setup before the AVD is created. Explicit `--proxy`,
 `--proxy-file`, and `--no-proxy` options always take precedence. To use a key
 stored elsewhere, pass `--nodemaven-key-file PATH`.
 
-No-rotation deliberately keeps the phone on its original exit. If that mobile
-endpoint goes offline, networking stops instead of NodeMaven silently replacing
-it with an IP whose city no longer matches the phone's saved GPS profile.
+The saved session remains targeted to the selected city. A mobile exit IP may
+change without invalidating the phone: later launches accept a replacement when
+it remains on the saved carrier, state and time zone and within 100 miles of the
+saved home centre. Nearby municipality labels are accepted because IP
+geolocation is approximate. A different state, time zone, carrier or distant
+exit blocks the launch instead of silently changing the phone's home profile.
 
 ## Create a phone
 
@@ -246,9 +250,16 @@ close its window or run `adb -s SERIAL emu kill`, then:
 python3 emulator_proxy.py --avd YOUR_AVD_NAME
 ```
 
-This uses the current local proxy file. Changing the file requires a full
-emulator restart; an Android-only `adb reboot` retains the existing host relay.
-Keep the launch terminal/process alive while using the phone.
+For a completed phone this is a managed, fail-closed restart: it selects the
+phone's saved proxy, verifies the exit IP/location, reapplies the proxy-derived
+time zone and private launch identity, then restores and verifies LTE, battery,
+signal, bounded GPS, saved display preferences, root isolation and certified
+app state after Android boots. A configured video camera also gets a real
+Camera2 motion check rather than trusting a saved flag or first frame.
+Direct Android Studio launch bypasses that restoration. Changing a proxy file
+requires a full emulator restart; an Android-only `adb reboot` retains the
+existing host relay. Keep the launch terminal/process alive while using the
+phone.
 
 Proxy launches append redacted JSON lines to `.local/proxy-diagnostics.jsonl`
 (owner-only permissions). Override the location with `--diagnostics-file PATH`.

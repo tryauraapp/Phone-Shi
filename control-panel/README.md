@@ -18,6 +18,21 @@ python3 control-panel/server.py
 Open <http://127.0.0.1:8790>. The default media source is
 `../IGeelark/instagram_tool/variants.py`; override it with `IG_VARIANTS_PATH`.
 
+The **Phones** section inventories the current host's saved AVDs and shows their
+setup certificate, city-bound proxy policy, saved location/timezone, runtime
+records and native camera profile. **Open with checks** starts only certified
+phones through `emulator_proxy.py`; the existing fail-closed launcher restores
+and verifies runtime state and camera motion before the panel reports Ready.
+Phones launched directly from Android Studio are labelled Running outside CRM.
+The Stop action targets only the selected AVD.
+
+Each compact phone row shows its model, assigned app, proxy location and current
+camera source. Dropping an MP4, MOV, M4V or WebM onto that phone validates the
+upload, stores it privately, and calls `swap_camera_video.py`. The complete
+saved S25 camera profile performs proportional 3:4 crop-to-fill preparation at
+30 fps. A running phone is cold-restarted and must pass the normal Camera2
+texture-motion check before it returns to Ready; other phones are untouched.
+
 ## Mac app
 
 `Creator Control.app` is installed in the user's Applications folder. Opening
@@ -37,6 +52,9 @@ python3 control-panel/server.py --host 0.0.0.0 --port 8787
 Put HTTPS in front of it (for example, Caddy or an authenticated private
 network). The browser asks for the token and holds it only in session storage.
 Back up `control-panel/data/`; it contains private photos and account plans.
+Each running panel controls phones on its own host. A Google Cloud installation
+therefore shows the VPS fleet, while the Mac installation shows the Mac fleet;
+remote host aggregation is a later deployment layer, not an implicit SSH call.
 
 ## Boundaries
 

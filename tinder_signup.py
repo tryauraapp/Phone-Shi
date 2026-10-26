@@ -130,6 +130,9 @@ LABELS.update({'Choose a phone number', 'Can we get your number?', 'Phone Number
                'Enter your code', 'Resend', 'Didn’t get anything? No worries, let’s try again.',
                'Opt out anytime via account settings or reply “STOP.” Message frequency varies; data rates may apply.',
                'By entering your number and tapping “Next,” you agree to get account (e.g. verification codes, activity updates, profile alerts) and promotional texts from Tinder. Texts may be automated. Consent not required for purchase.'})
+EMAIL_RECOVERY_BODY = "Don't lose access to your account, verify your email."
+LABELS.update({'Your email?', 'Enter email', EMAIL_RECOVERY_BODY, 'Sign in with Google',
+               'Verify instantly by connecting your Google account', 'Back button'})
 
 
 class CredentialsProvider(Protocol):
@@ -212,6 +215,28 @@ def allow_location_rationale(serial):
     if classify(xml) != 'location-rationale':
         raise RuntimeError('Expected observed Tinder location explanation')
     tap_label(serial, xml, 'Allow')
+
+
+def choose_notifications(serial, allow):
+    """Apply only the exact Tinder Android notification permission choice."""
+    xml = read_ui(serial)
+    if classify(xml) != 'notification-permission':
+        raise RuntimeError('Expected observed Tinder notification permission')
+    resource = ('com.android.permissioncontroller:id/permission_allow_button' if allow else
+                'com.android.permissioncontroller:id/permission_deny_button')
+    controls = [node for node in ET.fromstring(xml).iter('node')
+                if node.get('package') in PERMISSION_PACKAGES and
+                node.get('resource-id') == resource and node.get('clickable') == 'true' and
+                node.get('enabled') == 'true']
+    if len(controls) != 1:
+        raise RuntimeError('Notification permission control is missing or ambiguous')
+    match = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', controls[0].get('bounds', ''))
+    if not match:
+        raise RuntimeError('Notification permission control bounds are unavailable')
+    left, top, right, bottom = map(int, match.groups())
+    point = ((left + right) // 2, (top + bottom) // 2)
+    adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
+    print(('Allowed' if allow else 'Declined') + ' Tinder notifications.', flush=True)
 
 
 def continue_photos(serial):
@@ -596,6 +621,23 @@ def enter_phone(serial, provider, submit=False):
         print('Phone entered and verified; Next has not been tapped. Review the displayed SMS consent.', flush=True)
 
 
+def submit_existing_phone(serial):
+    """Submit a privately prefilled US phone field after SMS consent."""
+    xml = read_ui(serial)
+    if classify(xml) != 'phone-entry':
+        raise RuntimeError('Expected observed Tinder phone-entry screen')
+    fields = [node for node in ET.fromstring(xml).iter('node')
+              if node.get('package') == PACKAGE and
+              node.get('resource-id') == 'com.tinder:id/phoneNumberInputView']
+    if len(fields) != 1 or not re.fullmatch(r'\d{10}', fields[0].get('text', '')):
+        raise RuntimeError('Phone field must contain exactly ten private US digits')
+    point = button_center(xml, 'Next')
+    if not point:
+        raise RuntimeError('Phone Next control is missing or ambiguous')
+    adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
+    print('Privately entered phone submitted after explicit SMS consent.', flush=True)
+
+
 def enter_code(serial, provider):
     xml = read_ui(serial)
     if classify(xml) != 'verification-code':
@@ -627,6 +669,55 @@ def enter_code(serial, provider):
         raise RuntimeError('Verification Next control missing or ambiguous')
     adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
     print('Verification code submitted; value not logged or saved.', flush=True)
+
+
+def enter_email(serial, email):
+    """Enter a user-supplied recovery email without selecting Google sign-in."""
+    if (not re.fullmatch(r'[A-Za-z0-9.!#$%&\'*+/=?^_`{|}~-]+@'
+                         r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?'
+                         r'(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+', email)
+            or len(email) > 254):
+        raise RuntimeError('Enter a valid email address manually')
+    xml = read_ui(serial)
+    if classify(xml) != 'email-recovery-manual-stop':
+        raise RuntimeError('Expected observed Tinder recovery-email screen')
+    fields = [n for n in ET.fromstring(xml).iter('node')
+              if n.get('package') == PACKAGE and
+              n.get('resource-id') == PACKAGE + ':id/collect_email_input_edit_text']
+    if len(fields) != 1:
+        raise RuntimeError('Recovery-email field missing or ambiguous')
+    match = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', fields[0].get('bounds', ''))
+    if not match:
+        raise RuntimeError('Recovery-email field bounds unavailable')
+    l, t, r, b = map(int, match.groups())
+    adb_call(serial, 'shell', 'input', 'tap', str((l+r)//2), str((t+b)//2))
+    adb_call(serial, 'shell', 'input', 'keycombination', 'KEYCODE_CTRL_LEFT', 'KEYCODE_A')
+    adb_call(serial, 'shell', 'input', 'keyevent', 'KEYCODE_DEL')
+    # Pass the private value over adb's stdin so it never appears in argv or fixtures.
+    subprocess.run(['adb', '-s', serial, 'shell'], input='input text ' + shlex.quote(email) + '\n',
+                   text=True, capture_output=True, check=True, timeout=12)
+    current = read_ui(serial)
+    values = [n.get('text', '') for n in ET.fromstring(current).iter('node')
+              if n.get('resource-id') == PACKAGE + ':id/collect_email_input_edit_text']
+    if classify(current) != 'email-recovery-manual-stop' or values != [email]:
+        raise RuntimeError('Recovery-email read-back did not match; Next not tapped')
+    # Accessibility still exposes Tinder's bottom button while the keyboard
+    # physically covers it. Dismiss only the keyboard, then verify the private
+    # value again before acting on the now-visible control.
+    adb_call(serial, 'shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    current = read_ui(serial)
+    values = [n.get('text', '') for n in ET.fromstring(current).iter('node')
+              if n.get('resource-id') == PACKAGE + ':id/collect_email_input_edit_text']
+    if classify(current) != 'email-recovery-manual-stop' or values != [email]:
+        raise RuntimeError('Recovery email changed while dismissing keyboard; Next not tapped')
+    buttons = [n for n in ET.fromstring(current).iter('node')
+               if n.get('package') == PACKAGE and
+               n.get('resource-id') == PACKAGE + ':id/text_button' and
+               n.get('text') == 'Next']
+    if len(buttons) != 1 or buttons[0].get('enabled') != 'true':
+        raise RuntimeError('Recovery-email Next control is unavailable')
+    tap_resource(serial, current, 'text_button')
+    print('Recovery email verified and submitted; value not logged or saved.', flush=True)
 
 
 def classify(xml):
@@ -709,6 +800,11 @@ def classify(xml):
     if ('Can we get your number?' in tinder and
             any(n.get('resource-id') == PACKAGE + ':id/phoneNumberInputView' for n in nodes)):
         return 'phone-entry'
+    if ({'Your email?', EMAIL_RECOVERY_BODY, 'Sign in with Google'} <= tinder and
+            any(n.get('package') == PACKAGE and
+                n.get('resource-id') == PACKAGE + ':id/collect_email_input_edit_text'
+                for n in nodes)):
+        return 'email-recovery-manual-stop'
     if 'Allow Tinder to send you notifications?' in permissions:
         return 'notification-permission'
     if TERMS in tinder and 'Continue with Phone Number' in tinder:
@@ -764,7 +860,8 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
                accept_sms_terms=False, accept_house_rules=False, first_name=None,
                birth_date=None, gender=None, show_gender_on_profile=None,
                relationship_goal=None, photos=(), decline_notifications=False,
-               allow_location=False, max_steps=50, transition_delay=1.0):
+               allow_notifications=False, allow_location=False,
+               pause_private_inputs=False, max_steps=50, transition_delay=1.0):
     """Run only the recorded signup path, stopping at every human-verification boundary."""
     _validate_device(serial, avd)
     if not (accept_terms and accept_sms_terms and accept_house_rules):
@@ -773,9 +870,11 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
         raise RuntimeError('Signup runner requires explicit gender and visibility choices')
     if relationship_goal not in RELATIONSHIP_GOALS:
         raise RuntimeError('Signup runner requires an explicit observed relationship goal')
+    if allow_notifications and decline_notifications:
+        raise RuntimeError('Choose either allow or decline notifications, not both')
     photos = tuple(Path(photo) for photo in photos)
-    if len(photos) != 4:
-        raise RuntimeError('Signup runner requires exactly four explicitly supplied photos')
+    if len(photos) not in (0, 4):
+        raise RuntimeError('Signup runner requires zero or four explicitly supplied photos')
 
     for _ in range(max_steps):
         xml = read_ui(serial)
@@ -786,34 +885,47 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
         if state in {'human-verification-manual-stop', 'locked-video-selfie-manual-stop'}:
             print('MANUAL STOP: human verification/CAPTCHA must be completed by the user; no challenge control was tapped.', flush=True)
             return 2
+        if state == 'email-recovery-manual-stop':
+            print('MANUAL STOP: choose email entry or Google account linking directly; nothing was selected.',
+                  flush=True)
+            return 2
         if state in {'verification-code-invalid', 'unknown'}:
             print('STOP: rejected or unlearned screen; no retry or UI action taken.', flush=True)
             return 2
         if state == 'notification-permission':
-            if not decline_notifications:
+            if not (allow_notifications or decline_notifications):
                 print('STOP: notification choice was not authorized.', flush=True)
                 return 2
-            point = button_center(xml, 'Don’t allow') or button_center(xml, "Don't allow")
-            if not point:
-                raise RuntimeError('Notification decline control is not unambiguous')
-            adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
+            choose_notifications(serial, allow_notifications)
         elif state == 'welcome-terms-and-login':
             continue_with_phone(serial)
         elif state == 'google-number-hint':
             dismiss_google_number_hint(serial)
         elif state == 'phone-entry':
+            if pause_private_inputs:
+                print('MANUAL STOP: phone number is private; no value or control was changed.', flush=True)
+                return 2
             enter_phone(serial, provider, submit=True)
         elif state == 'verification-code':
+            if pause_private_inputs:
+                print('MANUAL STOP: verification code is private; no value or control was changed.', flush=True)
+                return 2
             enter_code(serial, provider)
         elif state == 'house-rules':
             agree_house_rules(serial)
         elif state == 'first-name':
+            if pause_private_inputs:
+                print('MANUAL STOP: first name entry awaits direct input.', flush=True)
+                return 2
             if first_name is None:
                 first_name = getpass.getpass('First name (hidden; not saved): ').strip()
             enter_first_name(serial, first_name)
         elif state == 'profile-welcome':
             start_profile(serial)
         elif state == 'birth-date':
+            if pause_private_inputs:
+                print('MANUAL STOP: actual birth date entry awaits direct input.', flush=True)
+                return 2
             if birth_date is None:
                 birth_date = getpass.getpass('Actual birth date YYYY-MM-DD (hidden; not saved): ').strip()
             enter_birth_date(serial, birth_date)
@@ -833,6 +945,9 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
             count = sum(n.get('package') == PACKAGE and n.get('content-desc') == 'Profile photo, added'
                         for n in ET.fromstring(xml).iter('node'))
             if count == 0:
+                if not photos:
+                    print('MANUAL STOP: no approved four-photo library was supplied.', flush=True)
+                    return 2
                 open_photo_picker(serial)
             elif count == 4:
                 continue_photos(serial)
@@ -865,18 +980,15 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
     raise RuntimeError('Signup runner reached its step limit; stopped without further UI actions')
 
 
-def observe(serial, avd, output, decline_notifications=False):
+def observe(serial, avd, output, decline_notifications=False, allow_notifications=False):
     _validate_device(serial, avd)
     xml = read_ui(serial)
     state = classify(xml)
     # Fixtures omit editable values, account identifiers, OTPs and unknown labels.
     _save_snapshot(xml, state, output)
     print(f'Tinder screen: {state}', flush=True)
-    if state == 'notification-permission' and decline_notifications:
-        point = button_center(xml, 'Don’t allow') or button_center(xml, "Don't allow")
-        if not point:
-            raise RuntimeError('Notification decline control is not unambiguous')
-        adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
+    if state == 'notification-permission' and (decline_notifications or allow_notifications):
+        choose_notifications(serial, allow_notifications)
         return 0
     if state == 'welcome-terms-and-login':
         print('Login choices: Google, Phone Number, Line, Email. Continue accepts Tinder terms; awaiting user choice and confirmation.')
@@ -907,10 +1019,16 @@ def main():
     parser.add_argument('--avd', required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--decline-notifications', action='store_true')
+    parser.add_argument('--allow-notifications', action='store_true')
+    parser.add_argument('--pause-at-private-input', action='store_true',
+                        help='Stop before phone, SMS, name, or birth-date entry')
     action = parser.add_mutually_exclusive_group()
     action.add_argument('--run-signup', action='store_true', help='Run the recorded flow until a CAPTCHA, human-verification, rejection, or unknown screen')
     action.add_argument('--enter-phone', action='store_true', help='Fill and verify phone field only; does not submit')
+    action.add_argument('--submit-phone', action='store_true',
+                        help='Submit an already filled ten-digit US phone field')
     action.add_argument('--enter-code', action='store_true', help='Privately enter the observed six-digit verification code')
+    action.add_argument('--enter-email', action='store_true', help='Privately enter the observed recovery email without Google linking')
     action.add_argument('--agree-house-rules', action='store_true', help='Accept House Rules only after explicit user agreement')
     action.add_argument('--enter-name', action='store_true', help='Privately prompt for user-supplied first name and tap Next')
     action.add_argument('--start-profile', action='store_true', help='Continue the observed profile welcome screen')
@@ -938,8 +1056,12 @@ def main():
     parser.add_argument('--signup-gender-visibility', choices=('show', 'hide'), help='Explicit gender visibility for --run-signup')
     parser.add_argument('--signup-relationship-goal', choices=sorted(RELATIONSHIP_GOALS), help='Explicit relationship goal for --run-signup')
     args = parser.parse_args()
+    if args.allow_notifications and args.decline_notifications:
+        parser.error('Choose only one notification permission action')
     if bool(args.select_gender) != bool(args.gender_visibility):
         parser.error('--select-gender and --gender-visibility must be supplied together')
+    if args.submit_phone and not args.accept_sms_terms:
+        parser.error('--submit-phone requires --accept-sms-terms')
     if (args.pick_photo_index is not None or args.confirm_four_photos) and not args.photo:
         parser.error('Photo selection requires explicit --photo paths for the complete supplied library')
     if args.run_signup:
@@ -954,8 +1076,8 @@ def main():
         ) if not present]
         if missing:
             parser.error('--run-signup requires ' + ', '.join(missing))
-        if len(args.photo) != 4:
-            parser.error('--run-signup requires exactly four --photo paths')
+        if len(args.photo) not in (0, 4):
+            parser.error('--run-signup requires zero or four --photo paths')
         return run_signup(
             args.serial, args.avd, args.output, ManualCredentials(),
             accept_terms=args.accept_terms,
@@ -966,9 +1088,12 @@ def main():
             relationship_goal=args.signup_relationship_goal,
             photos=args.photo,
             decline_notifications=args.decline_notifications,
+            allow_notifications=args.allow_notifications,
             allow_location=args.allow_location,
+            pause_private_inputs=args.pause_at_private_input,
         )
-    mutations = (args.enter_phone, args.enter_code, args.agree_house_rules, args.enter_name,
+    mutations = (args.enter_phone, args.submit_phone, args.enter_code, args.enter_email,
+                 args.agree_house_rules, args.enter_name,
                  args.start_profile, args.enter_birth_date, args.select_gender,
                  args.continue_default_distance, args.relationship_goal, args.skip_optional,
                  args.randomize_profile_traits,
@@ -1012,11 +1137,16 @@ def main():
             enter_first_name(args.serial, getpass.getpass('First name (hidden; not saved): ').strip())
         elif args.agree_house_rules:
             agree_house_rules(args.serial)
+        elif args.submit_phone:
+            submit_existing_phone(args.serial)
         elif args.enter_phone:
             enter_phone(args.serial, ManualCredentials())
-        else:
+        elif args.enter_code:
             enter_code(args.serial, ManualCredentials())
-    return observe(args.serial, args.avd, args.output, args.decline_notifications)
+        else:
+            enter_email(args.serial, getpass.getpass('Recovery email (hidden; not saved): ').strip())
+    return observe(args.serial, args.avd, args.output, args.decline_notifications,
+                   args.allow_notifications)
 
 
 if __name__ == '__main__':

@@ -576,15 +576,98 @@ class TinderTests(unittest.TestCase):
             tinder.enter_phone('test', provider, submit=True)
         self.assertEqual(call.call_args.args, ('test', 'shell', 'input', 'tap', '50', '150'))
 
+    def test_submit_prefilled_phone_requires_ten_digits_and_taps_next(self):
+        xml = ('<hierarchy><node package="com.tinder" text="Can we get your number?"/>'
+               '<node package="com.tinder" text="US +1"/>'
+               '<node package="com.tinder" class="android.widget.EditText" '
+               'resource-id="com.tinder:id/phoneNumberInputView" text="2025550123"/>'
+               '<node package="com.tinder" text="Next"/></hierarchy>')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'button_center', return_value=(50, 150)), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.submit_existing_phone('test')
+        call.assert_called_once_with('test', 'shell', 'input', 'tap', '50', '150')
+
     def test_google_number_hint_is_recognized_without_using_suggested_number(self):
         xml = '<hierarchy><node package="com.google.android.gms" text="Choose a phone number"/></hierarchy>'
         self.assertEqual(tinder.classify(xml), 'google-number-hint')
+
+    def test_email_recovery_choice_is_a_manual_boundary(self):
+        xml = ('<hierarchy><node package="com.tinder" text="Your email?"/>'
+               '<node package="com.tinder" text="Enter email" '
+               'resource-id="com.tinder:id/collect_email_input_edit_text"/>'
+               f'<node package="com.tinder" text="{tinder.EMAIL_RECOVERY_BODY}"/>'
+               '<node package="com.tinder" text="Sign in with Google"/></hierarchy>')
+        self.assertEqual(tinder.classify(xml), 'email-recovery-manual-stop')
+
+    def test_email_entry_uses_stdin_and_avoids_google_linking(self):
+        xml = ('<hierarchy><node package="com.tinder" text="Your email?"/>'
+               '<node package="com.tinder" text="Enter email" class="android.widget.EditText" '
+               'resource-id="com.tinder:id/collect_email_input_edit_text" bounds="[0,0][100,100]"/>'
+               f'<node package="com.tinder" text="{tinder.EMAIL_RECOVERY_BODY}"/>'
+               '<node package="com.tinder" text="Sign in with Google"/>'
+               '<node package="com.tinder" text="Next" resource-id="com.tinder:id/text_button" '
+               'class="android.widget.Button" clickable="true" enabled="false" bounds="[0,100][100,200]"/>'
+               '</hierarchy>')
+        entered = xml.replace('text="Enter email"', 'text="person@example.com"').replace(
+            'enabled="false"', 'enabled="true"')
+        with patch.object(tinder, 'read_ui', side_effect=[xml, entered, entered]), \
+                patch.object(tinder, 'adb_call') as call, \
+                patch.object(tinder.subprocess, 'run') as run:
+            tinder.enter_email('test', 'person@example.com')
+        self.assertNotIn('person@example.com', repr(run.call_args.args))
+        self.assertIn('person@example.com', run.call_args.kwargs['input'])
+        self.assertNotIn('person@example.com', repr(call.call_args_list))
+        self.assertNotIn('person@example.com', tinder.sanitized_xml(entered))
+        self.assertEqual(call.call_args_list[-2].args,
+                         ('test', 'shell', 'input', 'keyevent', 'KEYCODE_BACK'))
+        self.assertEqual(call.call_args.args, ('test', 'shell', 'input', 'tap', '50', '150'))
+
+    def test_email_entry_rejects_invalid_value_without_ui_action(self):
+        with patch.object(tinder, 'read_ui') as read:
+            with self.assertRaisesRegex(RuntimeError, 'valid email'):
+                tinder.enter_email('test', 'not-an-email')
+        read.assert_not_called()
 
     def test_only_observed_packages_and_markers_are_recognized(self):
         self.assertEqual(tinder.classify(welcome()), 'welcome-terms-and-login')
         self.assertEqual(tinder.classify(welcome().replace('com.tinder', 'another.app')), 'unknown')
         xml = '<hierarchy><node package="com.google.android.permissioncontroller" text="Allow Tinder to send you notifications?"/></hierarchy>'
         self.assertEqual(tinder.classify(xml), 'notification-permission')
+
+    def test_notification_allow_uses_exact_reviewed_control(self):
+        xml = ('<hierarchy><node package="com.google.android.permissioncontroller" '
+               'text="Allow Tinder to send you notifications?"/>'
+               '<node package="com.google.android.permissioncontroller" text="Allow" '
+               'resource-id="com.android.permissioncontroller:id/permission_allow_button" '
+               'clickable="true" enabled="true" bounds="[20,60][60,100]"/></hierarchy>')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.choose_notifications('test', True)
+        call.assert_called_once_with('test', 'shell', 'input', 'tap', '40', '80')
+
+    def test_signup_can_pause_before_private_phone_input_without_photos(self):
+        phone = ('<hierarchy><node package="com.tinder" text="Can we get your number?"/>'
+                 '<node package="com.tinder" text="US +1"/><node package="com.tinder" '
+                 'class="android.widget.EditText" resource-id="com.tinder:id/phoneNumberInputView" '
+                 'text="Phone Number"/><node package="com.tinder" text="Next"/></hierarchy>')
+        def call(serial, *args):
+            if args == ('shell', 'getprop ro.boot.qemu.avd_name'):
+                return 'Test'
+            if args == ('shell', 'pm', 'path', tinder.PACKAGE):
+                return 'package:/data/app/tinder/base.apk'
+            raise AssertionError('Unexpected mutation')
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(tinder, 'read_ui', return_value=phone), \
+                patch.object(tinder, 'adb_call', side_effect=call), \
+                patch.object(tinder, 'enter_phone') as enter:
+            result = tinder.run_signup(
+                'test', 'Test', folder, Mock(), accept_terms=True, accept_sms_terms=True,
+                accept_house_rules=True, gender='Woman', show_gender_on_profile=True,
+                relationship_goal='Long-term partner', photos=(), pause_private_inputs=True,
+                transition_delay=0)
+        self.assertEqual(result, 2)
+        enter.assert_not_called()
 
     def test_fixture_drops_personal_values_and_unknown_attributes(self):
         xml = '<hierarchy><node package="com.tinder" class="android.widget.EditText" text="test@example.invalid" token="secret"/><node text="123456"/><node text="Continue with Phone Number"/></hierarchy>'

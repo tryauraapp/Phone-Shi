@@ -27,6 +27,128 @@ def phone_proxy_file(avd, home=None):
     return root / avd / 'setup' / 'nodemaven-proxy'
 
 
+def phone_location_file(avd, home=None):
+    """Return the proxy-derived location record saved for one phone."""
+    root = Path(home) if home else Path.home() / 'galaxy_s25_avd_backups'
+    return root / avd / 'setup' / 'proxy-location.json'
+
+
+def phone_proxy_metadata_file(avd, home=None):
+    return phone_proxy_file(avd, home).with_suffix('.json')
+
+
+def canonical_location(value):
+    return re.sub(r'[^a-z0-9]', '', str(value).casefold())
+
+
+def timezone_options(avd, extra, home=None, required=False):
+    """Pin every cold start to the phone's saved proxy-derived time zone."""
+    path = phone_location_file(avd, home)
+    if not path.exists():
+        if required:
+            raise ValueError('saved proxy location is missing')
+        return []
+    data = json.loads(path.read_text())
+    timezone = data.get('timezone')
+    latitude, longitude = data.get('latitude'), data.get('longitude')
+    if (not isinstance(timezone, str) or not timezone or
+            type(latitude) not in (int, float) or type(longitude) not in (int, float) or
+            not math.isfinite(latitude) or not math.isfinite(longitude) or
+            not -90 <= latitude <= 90 or not -180 <= longitude <= 180):
+        raise ValueError('saved proxy location is invalid')
+    ZoneInfo(timezone)
+    supplied = [extra[i + 1] for i, value in enumerate(extra[:-1]) if value == '-timezone']
+    if '-timezone' in extra[-1:]:
+        raise ValueError('-timezone requires a value')
+    if supplied:
+        if len(supplied) != 1 or supplied[0] != timezone:
+            raise ValueError('launch timezone conflicts with the saved proxy location')
+        return []
+    return ['-timezone', timezone]
+
+
+def phone_certificate_file(avd, home=None):
+    """Return the completion certificate that makes a phone startup managed."""
+    root = Path(home) if home else Path.home() / 'galaxy_s25_avd_backups'
+    return root / avd / 'setup' / 'setup-complete.json'
+
+
+def runtime_restore_command(avd, home=None):
+    """Build the post-boot restorer only for a fully certified phone."""
+    certificate = phone_certificate_file(avd, home)
+    if not certificate.is_file():
+        return None
+    command = [sys.executable, '-I', str(Path(__file__).resolve().with_name(
+        'restore_phone_runtime.py')), '--avd', avd]
+    if home is not None:
+        command += ['--backups', str(Path(home))]
+    return command
+
+
+def validate_proxy_binding(upstream, avd, home=None):
+    """Require a certified phone to remain inside its saved proxy geography."""
+    certificate = phone_certificate_file(avd, home)
+    if not certificate.is_file():
+        return None
+    if not upstream:
+        raise ValueError('a certified phone cannot launch without its saved proxy')
+    expected = json.loads(phone_location_file(avd, home).read_text())
+    current = locate(upstream)
+    required = ('ip', 'timezone', 'latitude', 'longitude')
+    if any(key not in expected for key in required):
+        raise ValueError('saved proxy binding is incomplete')
+    if current['timezone'] != expected['timezone']:
+        raise ValueError('proxy time zone changed from the phone’s certified exit')
+    metadata_path = phone_proxy_metadata_file(avd, home)
+    targeting = {}
+    if metadata_path.is_file():
+        targeting = (json.loads(metadata_path.read_text()).get('targeting') or {})
+    city = targeting.get('city') or {}
+    region = targeting.get('region') or {}
+    country = targeting.get('country') or {}
+    isp = targeting.get('isp') or {}
+    if city and region:
+        if canonical_location(current.get('country_code')) != canonical_location(country.get('code')):
+            raise ValueError('proxy country moved outside the phone’s saved target')
+        if canonical_location(current.get('region')) not in {
+                canonical_location(region.get('name')), canonical_location(region.get('code'))}:
+            raise ValueError('proxy region moved outside the phone’s saved target')
+        if 'tmobile' in canonical_location(isp.get('name') or isp.get('code')) and \
+                'tmobile' not in canonical_location(current.get('isp')):
+            raise ValueError('proxy carrier no longer matches the phone’s saved target')
+    elif current['ip'] != expected['ip']:
+        raise ValueError('legacy proxy exit IP changed; provision a city-targeted proxy')
+    # A city-targeted mobile IP can rotate normally, and IP geolocation providers
+    # can label the same metro exit as a neighbouring municipality. The saved
+    # state, time zone, carrier and distance boundary are the material checks;
+    # do not require the current city label to be textually identical. Legacy
+    # exact-IP records retain the original 1,000-foot tolerance.
+    latitude_delta = (float(current['latitude']) - float(expected['latitude'])) * 364000
+    longitude_scale = max(0.01, math.cos(math.radians(float(expected['latitude']))))
+    longitude_delta = ((float(current['longitude']) - float(expected['longitude'])) *
+                       364000 * longitude_scale)
+    radius = 100 * 5280 if city and region else 1000
+    if math.hypot(latitude_delta, longitude_delta) > radius:
+        raise ValueError('proxy geolocation moved outside the phone’s saved GPS radius')
+    return current
+
+
+def validate_certified_launch_options(extra):
+    """Block cold-start overrides that would replace certified phone state."""
+    protected = {
+        '-wipe-data', '-snapshot', '-snapshot-list', '-no-snapshot-load',
+        '-no-snapshot-save', '-camera-front', '-gpu', '-prop', '-system',
+        '-vendor', '-kernel', '-initdata', '-datadir', '-data', '-ramdisk',
+        '-qemu-top-dir', '-android-serialno', '-network-user-mode-options',
+        '-wifi-user-mode-options', '-qemu', '-http-proxy',
+    }
+    conflicts = [value for value in extra
+                 if value.split('=', 1)[0] in protected or 'GLAsyncSwap' in value]
+    if conflicts:
+        raise ValueError('launch arguments would replace certified phone state: ' +
+                         ', '.join(conflicts))
+
+
 def camera_module():
     # setup launches Python with -I: load this exact sibling, not PYTHONPATH.
     path = Path(__file__).resolve().with_name('native_video_camera.py')
@@ -44,7 +166,7 @@ async def start_camera_check(avd, viewer=False, serial=None):
     root = Path(__file__).resolve().parent
     if viewer:
         arguments = [str(root / 'camera_probe/build_and_run.py'), '--avd', avd,
-                     '--keep-preview', '--seconds', '22', '--output',
+                     '--mode', 'texture', '--keep-preview', '--seconds', '22', '--output',
                      str(DEFAULT_FILE.parent / 'video-camera' / avd / 'direct')]
     else:
         arguments = [str(root / 'verify_camera_playback.py'), '--avd', avd,
@@ -67,9 +189,11 @@ def record_camera_check(avd, env, viewer, exit_code):
         return False
 
 
-async def launch_with_camera_check(command, env, proxy, diagnostic, avd, viewer=False):
+async def launch_with_camera_check(command, env, proxy, diagnostic, avd, viewer=False,
+                                   runtime_command=None):
     """Keep the relay alive, but never label an unchecked/frozen camera ready."""
-    emulator_task = asyncio.create_task(launch(command, env, proxy, diagnostic))
+    emulator_task = asyncio.create_task(launch(command, env, proxy, diagnostic,
+                                               runtime_command))
     check = await start_camera_check(avd, viewer)
     check_task = asyncio.create_task(check.wait())
     try:
@@ -81,7 +205,7 @@ async def launch_with_camera_check(command, env, proxy, diagnostic, avd, viewer=
         check_code = await check_task
         if record_camera_check(avd, env, viewer, check_code) is False:
             check_code = check_code or 1
-        print(('Native front Camera2 pixel check passed. Camera Feed Preview is open.' if viewer else
+        print(('Native front Camera2 texture-motion check passed. Camera Feed Preview is open.' if viewer else
                'Camera motion check passed (20 seconds). Review framing and full loop order.')
               if check_code == 0 else
               'Camera check FAILED. The phone is left open for diagnosis; it is NOT verified ready.',
@@ -189,9 +313,16 @@ def locate(upstream):
     timezone = data['timezone']['id']
     ZoneInfo(timezone)
     ip = str(ipaddress.ip_address(data['ip']))
-    label = ', '.join(str(data.get(key) or '') for key in ('city', 'region', 'country'))
+    city, region, country = (str(data.get(key) or '') for key in ('city', 'region', 'country'))
+    country_code = str(data.get('country_code') or '').lower()
+    connection_data = data.get('connection') or {}
+    isp = str(connection_data.get('isp') or '')
+    asn = int(connection_data['asn']) if type(connection_data.get('asn')) is int else None
+    label = ', '.join((city, region, country))
     label = ' '.join(label.split())
-    return dict(ip=ip, latitude=latitude, longitude=longitude, timezone=timezone, label=label)
+    return dict(ip=ip, latitude=latitude, longitude=longitude, timezone=timezone,
+                city=city, region=region, country=country, country_code=country_code,
+                isp=isp, asn=asn, label=label)
 
 
 def graphics_sync_options(identity_args, video, extra):
@@ -329,25 +460,57 @@ async def relay_connection(reader, writer, upstream, diagnostic=None):
             remote.close()
 
 
-async def launch(command, env, upstream, diagnostic=None):
-    if not upstream:
-        os.execve(command[0], command, env)
-    server = await asyncio.start_server(
-        lambda r, w: relay_connection(r, w, upstream, diagnostic), '127.0.0.1', 0)
-    port = server.sockets[0].getsockname()[1]
-    async with server:
+async def launch(command, env, upstream, diagnostic=None, runtime_command=None):
+    server = None
+    if upstream:
+        server = await asyncio.start_server(
+            lambda r, w: relay_connection(r, w, upstream, diagnostic), '127.0.0.1', 0)
+        port = server.sockets[0].getsockname()[1]
         proxy_args = ['-http-proxy', f'http://127.0.0.1:{port}']
         # Emulator flags must precede the QEMU passthrough delimiter.
         boundary = command.index('-qemu') if '-qemu' in command else len(command)
         command = command[:boundary] + proxy_args + command[boundary:]
+    try:
         process = await asyncio.create_subprocess_exec(
             *command, env=env)
+        restorer = None
         try:
+            if runtime_command:
+                restorer = await asyncio.create_subprocess_exec(*runtime_command, env=env)
+                emulator_wait = asyncio.create_task(process.wait())
+                restore_wait = asyncio.create_task(restorer.wait())
+                done, _ = await asyncio.wait(
+                    {emulator_wait, restore_wait}, return_when=asyncio.FIRST_COMPLETED)
+                if emulator_wait in done and restore_wait not in done:
+                    restorer.terminate()
+                    await restorer.wait()
+                    restore_wait.cancel()
+                    await asyncio.gather(restore_wait, return_exceptions=True)
+                    return emulator_wait.result()
+                restored = restore_wait.result()
+                if restored:
+                    print('Phone runtime restoration failed; closing the inconsistent phone.',
+                          file=sys.stderr, flush=True)
+                    if process.returncode is None:
+                        process.terminate()
+                        await process.wait()
+                    emulator_wait.cancel()
+                    await asyncio.gather(emulator_wait, return_exceptions=True)
+                    return restored
+                print('Certified phone runtime restored and verified.', flush=True)
+                return await emulator_wait
             return await process.wait()
         finally:
+            if restorer and restorer.returncode is None:
+                restorer.terminate()
+                await restorer.wait()
             if process.returncode is None:
                 process.terminate()
                 await process.wait()
+    finally:
+        if server:
+            server.close()
+            await server.wait_closed()
 
 
 def main():
@@ -364,6 +527,7 @@ def main():
     parser.add_argument('--camera-viewer', action='store_true',
                         help='Use our real Camera2 frame viewer/check instead of the stock Camera preview.')
     args, extra = parser.parse_known_args()
+    explicit_proxy_choice = args.proxy is not None or args.proxy_file is not None or args.no_proxy
     # A phone provisioned from the NodeMaven API keeps its own sticky proxy.
     # Explicit proxy arguments (including --no-proxy) always take precedence.
     if args.avd and args.proxy is None and args.proxy_file is None and not args.no_proxy:
@@ -389,6 +553,14 @@ def main():
         return
     if not args.avd:
         parser.error('--avd is required to launch an emulator.')
+    runtime_command = runtime_restore_command(args.avd)
+    if runtime_command:
+        try:
+            validate_certified_launch_options(extra)
+            validate_proxy_binding(proxy, args.avd)
+        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError,
+                http.client.HTTPException) as exc:
+            parser.exit(2, f'Certified proxy preflight failed: {exc}.\n')
     # Pass an explicit option: modern Wi-Fi backends may ignore http_proxy.
     env = dict(os.environ)
     env.pop('HTTP_PROXY', None)
@@ -409,6 +581,11 @@ def main():
     if identity_args and any(option in extra for option in ('-qemu-top-dir', '-android-serialno', '-ramdisk',
                                                            '-network-user-mode-options', '-wifi-user-mode-options', '-qemu')):
         parser.error('This AVD uses its reserved serial and private engine; conflicting overrides are not allowed.')
+    try:
+        command += timezone_options(args.avd, extra,
+                                    required=phone_proxy_file(args.avd).exists())
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        parser.exit(2, f'Could not apply this phone’s saved proxy timezone: {exc}.\n')
     qemu_args = []
     if '-qemu' in identity_args:
         boundary = identity_args.index('-qemu')
@@ -419,6 +596,10 @@ def main():
     except (OSError, ValueError) as exc:
         parser.exit(2, f'Native camera preflight failed: {exc}\n')
     command += graphics_sync_options(identity_args, video, extra)
+    if runtime_command and video is not None and not args.check_video_camera:
+        args.check_video_camera = True
+        print('Configured video camera detected; motion verification is required on this cold start.',
+              flush=True)
     if args.check_video_camera and video is None:
         parser.error('--check-video-camera requires a configured videofile front camera.')
     if args.camera_viewer and not args.check_video_camera:
@@ -435,7 +616,7 @@ def main():
         except (OSError, ValueError) as exc:
             parser.exit(2, f'Could not inspect running camera device: {exc}\n')
         if existing_serial:
-            if extra or args.proxy is not None or args.proxy_file is not None or args.no_proxy:
+            if extra or explicit_proxy_choice:
                 parser.error('This AVD is already running; close it first to apply extra launch arguments.')
             print(f'Reusing {args.avd} on {existing_serial}; its existing proxy/launch settings are unchanged.', flush=True)
             async def check_existing():
@@ -464,8 +645,10 @@ def main():
             print(f'Redacted proxy diagnostics: {path}', flush=True)
         if args.check_video_camera:
             return asyncio.run(launch_with_camera_check(command + extra + qemu_args, env,
-                                                       proxy, diagnostic, args.avd, use_viewer))
-        return asyncio.run(launch(command + extra + qemu_args, env, proxy, diagnostic))
+                                                       proxy, diagnostic, args.avd, use_viewer,
+                                                       runtime_command))
+        return asyncio.run(launch(command + extra + qemu_args, env, proxy, diagnostic,
+                                  runtime_command))
     finally:
         if diagnostic:
             diagnostic.close()

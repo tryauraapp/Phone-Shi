@@ -309,6 +309,25 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
             self.assertIn(f'Front camera: videofile:{expected}', result.stdout)
             self.assertNotIn('Front camera: emulated', result.stdout)
 
+    def test_tinder_setup_uses_full_install_isolate_verify_flow(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, HOME=directory, ANDROID_AVD_HOME=directory + '/avds')
+            command = ['/bin/bash', str(ROOT / 'setup_galaxy_s25_avd.sh'), '--dry-run',
+                       '--yes', '--tinder-signup', '--no-proxy',
+                       '--tinder-allow-notifications', '--tinder-accept-terms',
+                       '--tinder-accept-sms-terms', '--tinder-accept-house-rules',
+                       '--tinder-gender', 'Woman', '--tinder-gender-visibility', 'show',
+                       '--tinder-relationship-goal', 'Long-term partner',
+                       '--tinder-allow-location']
+            result = subprocess.run(command, env=env, capture_output=True, text=True, check=True)
+            self.assertIn('Tinder flow: finish phone', result.stdout)
+            self.assertIn('Install (held closed) → isolate → reboot → verify → guarded first launch',
+                          result.stdout)
+            self.assertIn('Tinder guarded signup: 1', result.stdout)
+            self.assertIn('notifications=allow gender=Woman visibility=show goal=Long-term partner location=1',
+                          result.stdout)
+            self.assertIn('Bumble installation: Google Play skipped', result.stdout)
+
     def test_sensor_patch_only_changes_readonly_labels(self):
         patcher = module("patch_sensor_labels")
         data = bytearray(4096)

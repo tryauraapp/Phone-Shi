@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Creator Control</title><meta name="description" content="Prepare creator profiles and per-account camera media.">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=3">
 </head>
 <body>
   <div class="shell">
     <aside>
       <div class="brand"><span class="mark">CC</span><div><strong>Creator Control</strong><small>Account workspace</small></div></div>
-      <nav><button class="nav active" data-view="prepare">✦ <span>Prepare accounts</span></button><button class="nav" data-view="creators">◎ <span>Creators</span></button><button class="nav" data-view="accounts">▦ <span>Account queue</span></button></nav>
+      <nav><button class="nav active" data-view="prepare">✦ <span>Prepare accounts</span></button><button class="nav" data-view="phones">▣ <span>Phones</span></button><button class="nav" data-view="creators">◎ <span>Creators</span></button><button class="nav" data-view="accounts">▦ <span>Account queue</span></button></nav>
       <div class="aside-foot"><span id="pipelineDot" class="status-dot"></span><div><b>Media pipeline</b><small id="pipelineText">Checking…</small></div></div>
     </aside>
     <main>
@@ -39,10 +39,15 @@
         </div>
         <div class="bottom-bar"><div><b id="summary">Choose a creator and app to continue</b><small>Preparation never crosses SMS, CAPTCHA or identity checks.</small></div><button class="primary large" id="prepareButton">Prepare account set →</button></div>
       </section>
+      <section id="phones" class="view">
+        <div class="toolbar fleet-toolbar"><div><p class="kicker">Managed phone fleet</p><p id="fleetHost">Current host</p></div><button class="ghost" id="refreshPhones">↻ Refresh status</button></div>
+        <div class="fleet-summary" id="fleetSummary"></div>
+        <div id="phoneList" class="phone-list"></div>
+      </section>
       <section id="creators" class="view"><div id="creatorList" class="list-grid"></div></section>
       <section id="accounts" class="view"><div class="toolbar"><p>Prepared media and stored onboarding choices.</p><button class="ghost" id="inspect">Inspect current screen</button></div><div id="liveOptions" class="live-options hidden"></div><div id="accountList" class="account-list"></div></section>
     </main>
   </div>
   <dialog id="creatorDialog"><form method="dialog"><div class="dialog-head"><div><p class="kicker">New record</p><h2>Add a creator</h2></div><button value="cancel" class="icon-btn">×</button></div><label>Display name<input id="creatorName" placeholder="e.g. Maya" autofocus></label><label>Internal notes<textarea id="creatorNotes" placeholder="Optional notes — never shown in app"></textarea></label><div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button id="saveCreator" value="default" class="primary">Create creator</button></div></form></dialog>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=3"></script>
 </body></html>

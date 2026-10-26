@@ -1,8 +1,11 @@
 import importlib.util
+import json
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +25,7 @@ class ControlPanelTests(unittest.TestCase):
         self.assertEqual(identity["android"], "15")
         self.assertEqual(identity["home"], location["label"])
         self.assertEqual(identity["proxy_location"], location)
-        self.assertTrue(identity["sw"])
+        self.assertEqual(identity["sw"], [["2000-01-01T00:00:00+00:00", "S931BXXS4AYF1"]])
 
     def test_reviewed_apps_expose_multiselect_and_randomizable_choices(self):
         self.assertEqual(set(panel.APP_SCHEMAS), {"bumble", "tinder", "pof"})
@@ -52,6 +55,86 @@ class ControlPanelTests(unittest.TestCase):
             devices, avds, _ = panel.inventory()
         self.assertEqual(devices, [{"serial": "emulator-5554", "avd": "Galaxy_S25_Test"}])
         self.assertIn("Galaxy_S25_Test", avds)
+
+    def test_fleet_inventory_reports_city_bound_phone_without_pinning_ip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            backups = root / "backups"
+            setup = backups / "Galaxy_S25_Test/setup"
+            setup.mkdir(parents=True)
+            (setup / "setup-complete.json").write_text(json.dumps({"avd": "Galaxy_S25_Test"}))
+            (setup / "proxy-location.json").write_text(json.dumps({
+                "label": "Houston, Texas, United States", "latitude": 29.76,
+                "longitude": -95.37, "timezone": "America/Chicago"}))
+            (setup / "nodemaven-proxy").write_text("private")
+            (setup / "nodemaven-proxy.json").write_text(json.dumps({"targeting": {
+                "city": {"name": "Houston"}, "region": {"name": "Texas"},
+                "isp": {"name": "T-Mobile USA"}}}))
+            for relative in ("profile/device-profile.json", "profile/battery.conf",
+                             "profile/radio-state.json", "location/location-state.json"):
+                path = setup / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}")
+            avd_home = root / "avds"
+            camera = avd_home / "Galaxy_S25_Test.avd/camera/native-camera.json"
+            camera.parent.mkdir(parents=True)
+            camera.write_text(json.dumps({"prepared_video": "/private/front.webm", "fps": 30,
+                                          "preview_size": [1080, 1440],
+                                          "status": "verified_camera2_pixels"}))
+            old_backups, old_data = panel.PHONE_BACKUPS, panel.DATA
+            panel.PHONE_BACKUPS, panel.DATA = backups, root / "data"
+            panel.FLEET_JOBS.clear()
+            try:
+                with patch.dict(os.environ, {"ANDROID_AVD_HOME": str(avd_home)}), \
+                        patch.object(panel, "inventory", return_value=(
+                            [], ["Galaxy_S25_Test"], {})):
+                    phone = panel.fleet_inventory()[0]
+            finally:
+                panel.PHONE_BACKUPS, panel.DATA = old_backups, old_data
+            self.assertTrue(phone["certified"])
+            self.assertEqual(phone["phase"], "stopped")
+            self.assertEqual(phone["proxy"]["policy"], "city-bound")
+            self.assertTrue(phone["proxy"]["rotationAllowed"])
+            self.assertEqual(phone["proxy"]["radiusMiles"], 100)
+            self.assertTrue(all(check["ok"] for check in phone["checks"]))
+
+    def test_launch_phone_uses_guarded_launcher(self):
+        process = MagicMock(pid=4123)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(panel, "DATA", Path(directory)), \
+                patch.object(panel, "require_phone", return_value={
+                    "certified": True, "phase": "stopped"}), \
+                patch.object(panel.subprocess, "Popen", return_value=process) as popen:
+            panel.FLEET_JOBS.clear()
+            result = panel.launch_phone("Galaxy_S25_Test")
+        command = popen.call_args.args[0]
+        self.assertIn(str(ROOT / "emulator_proxy.py"), command)
+        self.assertEqual(command[-2:], ["--avd", "Galaxy_S25_Test"])
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
+        self.assertEqual(result["phase"], "starting")
+
+    def test_camera_upload_uses_complete_swap_helper_and_restarts_running_phone(self):
+        class VideoPart:
+            def get_filename(self): return "new-camera.mp4"
+            def get_content_type(self): return "video/mp4"
+            def get_payload(self, decode=False): return b"video-bytes"
+
+        process = MagicMock(pid=5511)
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(panel, "DATA", Path(directory)), \
+                patch.object(panel, "require_phone", return_value={
+                    "certified": True, "phase": "ready"}), \
+                patch.object(panel, "verify_uploaded_video", return_value={
+                    "width": 1080, "height": 1440, "duration": 8.0,
+                    "frameRate": "30/1"}), \
+                patch.object(panel.subprocess, "Popen", return_value=process) as popen:
+            panel.FLEET_JOBS.clear()
+            result = panel.replace_camera_video("Galaxy_S25_Test", VideoPart())
+        command = popen.call_args.args[0]
+        self.assertIn(str(ROOT / "swap_camera_video.py"), command)
+        self.assertIn("--restart", command)
+        self.assertEqual(result["media"]["width"], 1080)
+        self.assertEqual(result["filename"], "new-camera.mp4")
 
 
 if __name__ == "__main__":

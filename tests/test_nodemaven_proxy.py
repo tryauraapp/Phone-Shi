@@ -15,6 +15,10 @@ def jwt(payload):
 
 
 class NodeMavenProxyTests(unittest.TestCase):
+    def test_accepts_current_and_legacy_location_list_shapes(self):
+        self.assertEqual(nodemaven.result_list({'results': [1]}, 'regions'), [1])
+        self.assertEqual(nodemaven.result_list({'regions': [2]}, 'regions'), [2])
+
     def test_expired_key_is_rejected_without_network(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "key"
@@ -85,6 +89,32 @@ class NodeMavenProxyTests(unittest.TestCase):
 
         with self.assertRaisesRegex(nodemaven.NodeMavenError, "could not verify"):
             nodemaven.provision("api-key", request)
+
+    def test_city_targeting_is_verified_and_persisted(self):
+        def request(key, method, endpoint, **kwargs):
+            if endpoint == "/users/me":
+                return {"proxy_username": "account_user", "proxy_password": "private_password"}
+            if endpoint == "/locations/regions/":
+                return {"regions": [{"name": "Texas", "code": "texas"}]}
+            if endpoint == "/locations/cities/":
+                return {"cities": [{"name": "Houston", "code": "houston",
+                                      "region": {"name": "Texas", "code": "texas"}}]}
+            if endpoint == "/locations/isps/":
+                return {"isps": [{"name": "T-Mobile USA", "code": "t_mobile_usa",
+                                    "effective_availability": "high"}]}
+            if endpoint == "/proxy-checks/location":
+                return {"exit_ip": "192.0.2.4", "isp": "T-Mobile USA, Inc.",
+                        "proxy_type": "mobile", "observed": {
+                            "country": "US", "region": "Texas", "city": "Houston",
+                            "isp": "T-Mobile USA, Inc."}}
+            raise AssertionError(endpoint)
+
+        with patch.object(nodemaven.secrets, "token_hex", return_value="abcdef0123456789"):
+            proxy, metadata = nodemaven.provision(
+                "api-key", request, region="Texas", city="Houston")
+        self.assertIn("-region-texas-city-houston-isp-t_mobile_usa-", proxy)
+        self.assertEqual(metadata["targeting"]["city"]["code"], "houston")
+        self.assertEqual(metadata["targeting"]["region"]["code"], "texas")
 
     def test_private_write_is_atomic_and_owner_only(self):
         with tempfile.TemporaryDirectory() as directory:

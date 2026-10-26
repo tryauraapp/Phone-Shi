@@ -19,9 +19,12 @@ import json
 import mimetypes
 import os
 from pathlib import Path
+import platform
 import random
 import re
 import secrets
+import signal
+import socket
 import sqlite3
 import subprocess
 import sys
@@ -41,7 +44,13 @@ PHONE_BACKUPS = Path(os.environ.get("PHONE_BACKUPS", Path.home() / "galaxy_s25_a
 DEFAULT_VARIANTS = REPO.parent / "IGeelark" / "instagram_tool" / "variants.py"
 VARIANTS_PATH = Path(os.environ.get("IG_VARIANTS_PATH", DEFAULT_VARIANTS)).resolve()
 MAX_UPLOAD = 30 * 1024 * 1024
+MAX_VIDEO_UPLOAD = 512 * 1024 * 1024
 IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic"}
+VIDEO_TYPES = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
+               "video/x-m4v": ".m4v", "application/octet-stream": ""}
+PACKAGE_APPS = {"com.bumble.app": "Bumble", "com.tinder": "Tinder",
+                "com.pof.android": "Plenty of Fish"}
+FLEET_JOBS = {}
 
 
 TINDER_INTERESTS = ["Atari", "Manga", "Papeda", "Ludo", "Gudeg", "League of Legends", "Food tours", "Maggi", "90s Kid", "Sega", "Sambal", "Foodie", "Harry Potter", "MLB", "Fortnite", "Marvel", "E-Sports", "PlayStation", "Comic-con", "Dungeons & Dragons", "Soto", "Biryani", "Xbox", "Among Us", "NBA", "Sate"]
@@ -166,7 +175,10 @@ def identity_for(account_id, device, location):
     identity = variants.device_identity(rng, device=(brand, name), home=location["label"])
     if name == "Galaxy S25":
         identity.update(kind="android", brand="samsung", name=name, make="samsung", model="SM-S931B", android="15")
-        identity["sw"] = [["2000-01-01T00:00:00+00:00", "S931USQU1AYB3"]]
+        # Match the verified international S25 profile used by these AVDs.
+        # Samsung photo Software tags use the firmware build, not a US-model
+        # firmware prefix belonging to SM-S931U.
+        identity["sw"] = [["2000-01-01T00:00:00+00:00", "S931BXXS4AYF1"]]
     identity["proxy_location"] = location
     return identity
 
@@ -237,6 +249,254 @@ def inventory():
     return devices, avds, profiles
 
 
+def avd_directory(avd):
+    home = Path(os.environ.get("ANDROID_AVD_HOME", Path.home() / ".android/avd"))
+    directory = home / f"{avd}.avd"
+    registration = home / f"{avd}.ini"
+    try:
+        for line in registration.read_text().splitlines():
+            if line.startswith("path="):
+                return Path(line[5:])
+    except OSError:
+        pass
+    return directory
+
+
+def private_read_json(path):
+    try:
+        return json.loads(Path(path).read_text())
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def fleet_log_path(avd):
+    folder = DATA / "fleet"
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / f"{avd}.log"
+
+
+def fleet_log_tail(avd, limit=12000):
+    try:
+        text = fleet_log_path(avd).read_text(errors="replace")
+    except OSError:
+        return ""
+    return text[-limit:]
+
+
+def fleet_host():
+    return {"id": socket.gethostname(), "name": socket.gethostname(),
+            "system": platform.system(), "scope": "local"}
+
+
+def fleet_inventory():
+    devices, avds, profiles = inventory()
+    live = {item.get("avd"): item for item in devices if item.get("avd")}
+    assigned_apps = {}
+    db = None
+    try:
+        db = connect()
+        rows = db.execute("SELECT avd,app FROM accounts WHERE avd<>'' ORDER BY updated_at DESC").fetchall()
+        for row in rows:
+            name = APP_SCHEMAS.get(row["app"], {}).get("name", row["app"])
+            if name not in assigned_apps.setdefault(row["avd"], []):
+                assigned_apps[row["avd"]].append(name)
+    except sqlite3.Error:
+        pass
+    finally:
+        if db is not None:
+            db.close()
+    phones = []
+    for avd in sorted(set(avds) | set(profiles)):
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", avd):
+            continue
+        setup = PHONE_BACKUPS / avd / "setup"
+        certificate = private_read_json(setup / "setup-complete.json")
+        location = private_read_json(setup / "proxy-location.json")
+        proxy_metadata = private_read_json(setup / "nodemaven-proxy.json")
+        targeting = proxy_metadata.get("targeting") or {}
+        city_targeted = bool(targeting.get("city") and targeting.get("region"))
+        camera = private_read_json(avd_directory(avd) / "camera/native-camera.json")
+        apps = assigned_apps.get(avd) or [PACKAGE_APPS.get(package, package) for package in
+                                         certificate.get("authorizedSignupPackages", [])]
+        live_device = certificate.get("liveDevice") or {}
+        manufacturer = str(live_device.get("manufacturer") or "Samsung").title()
+        model_code = live_device.get("model") or "SM-S931B"
+        model_name = "Galaxy S25" if str(model_code).startswith("SM-S93") else str(model_code)
+        device = live.get(avd)
+        job = FLEET_JOBS.get(avd)
+        process = job.get("process") if job else None
+        exit_code = process.poll() if process else None
+        managed_running = bool(process and exit_code is None)
+        log = fleet_log_tail(avd)
+        camera_required = bool(camera.get("prepared_video"))
+        runtime_ready = "Certified phone runtime restored and verified." in log
+        camera_ready = "Native front Camera2 texture-motion check passed." in log
+        if device and runtime_ready and (not camera_required or camera_ready):
+            phase = "ready"
+        elif device and runtime_ready and camera_required:
+            phase = "checking-camera"
+        elif device and managed_running:
+            phase = "restoring"
+        elif device:
+            phase = "running-unmanaged"
+        elif managed_running:
+            phase = "starting"
+        elif job and exit_code not in (None, 0):
+            phase = "failed"
+        else:
+            phase = "stopped"
+        checks = [
+            {"key": "certificate", "label": "Setup certificate",
+             "ok": bool(certificate.get("avd") == avd)},
+            {"key": "identity", "label": "Saved device identity",
+             "ok": (setup / "profile/device-profile.json").is_file()},
+            {"key": "proxy", "label": "Private proxy configuration",
+             "ok": (setup / "nodemaven-proxy").is_file()},
+            {"key": "location", "label": "Proxy-derived location and timezone",
+             "ok": all(location.get(key) is not None for key in
+                       ("latitude", "longitude", "timezone"))},
+            {"key": "runtime", "label": "Battery, signal and GPS runtime records",
+             "ok": all((setup / path).is_file() for path in
+                       ("profile/battery.conf", "profile/radio-state.json",
+                        "location/location-state.json"))},
+            {"key": "camera", "label": "Native camera profile",
+             "ok": not camera_required or camera.get("status") == "verified_camera2_pixels",
+             "optional": not camera_required},
+        ]
+        target_city = (targeting.get("city") or {}).get("name")
+        target_region = (targeting.get("region") or {}).get("name")
+        carrier = (targeting.get("isp") or {}).get("name") or proxy_metadata.get("isp")
+        phones.append({
+            "avd": avd, "serial": (device or {}).get("serial", ""), "phase": phase,
+            "certified": bool(certificate.get("avd") == avd),
+            "managed": managed_running, "exitCode": exit_code,
+            "host": fleet_host(), "checks": checks, "apps": apps,
+            "model": {"manufacturer": manufacturer, "name": model_name, "code": model_code},
+            "location": location, "camera": {
+                "configured": camera_required, "status": camera.get("status", "not-configured"),
+                "fps": camera.get("fps"), "previewSize": camera.get("preview_size"),
+                "sourceName": Path(camera.get("original", "")).name if camera.get("original") else None},
+            "proxy": {"policy": "city-bound" if city_targeted else "legacy-exact-ip",
+                      "city": target_city, "region": target_region, "carrier": carrier,
+                      "rotationAllowed": city_targeted, "radiusMiles": 100 if city_targeted else None},
+            "startedAt": job.get("startedAt") if job else None,
+            "log": log,
+        })
+    return phones
+
+
+def require_phone(avd):
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", avd):
+        raise ValueError("Invalid phone name")
+    phone = next((item for item in fleet_inventory() if item["avd"] == avd), None)
+    if not phone:
+        raise ValueError("Phone was not found on this host")
+    return phone
+
+
+def launch_phone(avd):
+    phone = require_phone(avd)
+    if not phone["certified"]:
+        raise ValueError("Phone is not certified; complete the full setup before opening it")
+    if phone["phase"] not in {"stopped", "failed"}:
+        raise ValueError(f"Phone is already {phone['phase'].replace('-', ' ')}")
+    log_path = fleet_log_path(avd)
+    stream = open(log_path, "w", encoding="utf-8")
+    os.chmod(log_path, 0o600)
+    stream.write(f"Managed launch started {now()} on {fleet_host()['name']}\n")
+    stream.flush()
+    env = dict(os.environ, PYTHONUNBUFFERED="1")
+    try:
+        process = subprocess.Popen(
+            [sys.executable, "-I", str(REPO / "emulator_proxy.py"), "--avd", avd],
+            cwd=REPO, env=env, stdout=stream, stderr=subprocess.STDOUT,
+            start_new_session=True)
+    finally:
+        stream.close()
+    FLEET_JOBS[avd] = {"process": process, "startedAt": now(), "log": str(log_path)}
+    return {"avd": avd, "phase": "starting", "pid": process.pid}
+
+
+def stop_phone(avd):
+    phone = require_phone(avd)
+    if phone["serial"]:
+        subprocess.run(["adb", "-s", phone["serial"], "emu", "kill"],
+                       capture_output=True, text=True, timeout=15, check=True)
+    else:
+        job = FLEET_JOBS.get(avd)
+        process = job.get("process") if job else None
+        if not process or process.poll() is not None:
+            raise ValueError("Phone is not running")
+        os.killpg(process.pid, signal.SIGTERM)
+    return {"avd": avd, "phase": "stopping"}
+
+
+def verify_uploaded_video(path):
+    result = subprocess.run([
+        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        "-show_entries", "stream=width,height,avg_frame_rate:format=duration",
+        "-of", "json", str(path)], capture_output=True, text=True, timeout=30)
+    if result.returncode:
+        raise ValueError("The uploaded file is not a readable video")
+    try:
+        data = json.loads(result.stdout)
+        stream = data["streams"][0]
+        width, height = int(stream["width"]), int(stream["height"])
+        duration = float(data["format"]["duration"])
+    except (KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError):
+        raise ValueError("The uploaded video has no usable video stream")
+    if width < 1 or height < 1 or not 0 < duration <= 600:
+        raise ValueError("Camera videos must be between 0 and 10 minutes long")
+    return {"width": width, "height": height, "duration": round(duration, 3),
+            "frameRate": stream.get("avg_frame_rate")}
+
+
+def replace_camera_video(avd, part):
+    phone = require_phone(avd)
+    if not phone["certified"]:
+        raise ValueError("Phone is not certified; complete its setup before changing the camera")
+    if phone["phase"] in {"starting", "restoring", "checking-camera"}:
+        raise ValueError("Wait for the current phone startup to finish before changing its video")
+    filename = Path(part.get_filename() or "camera-video").name
+    mime = part.get_content_type()
+    suffix = Path(filename).suffix.lower()
+    if mime not in VIDEO_TYPES or suffix not in {".mp4", ".mov", ".webm", ".m4v"}:
+        raise ValueError("Upload an MP4, MOV, M4V or WebM video")
+    payload = part.get_payload(decode=True)
+    if not payload:
+        raise ValueError("The uploaded video is empty")
+    folder = DATA / "camera-videos" / avd
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"video_{secrets.token_hex(8)}{suffix}"
+    path.write_bytes(payload)
+    os.chmod(path, 0o600)
+    try:
+        media = verify_uploaded_video(path)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    log_path = fleet_log_path(avd)
+    stream = open(log_path, "w", encoding="utf-8")
+    os.chmod(log_path, 0o600)
+    stream.write(f"Camera replacement started {now()} on {fleet_host()['name']}\n")
+    stream.write(f"Uploaded source: {filename} ({media['width']}×{media['height']}, {media['duration']}s)\n")
+    stream.flush()
+    command = [sys.executable, "-I", str(REPO / "swap_camera_video.py"),
+               "--avd", avd, "--video", str(path)]
+    if phone["phase"] not in {"stopped", "failed"}:
+        command.append("--restart")
+    try:
+        process = subprocess.Popen(command, cwd=REPO,
+                                   env=dict(os.environ, PYTHONUNBUFFERED="1"),
+                                   stdout=stream, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+    finally:
+        stream.close()
+    FLEET_JOBS[avd] = {"process": process, "startedAt": now(), "log": str(log_path),
+                       "action": "camera-replacement"}
+    return {"avd": avd, "phase": "starting", "filename": filename, "media": media}
+
+
 def row_json(row):
     d = dict(row)
     for key in ("profile_json", "identity_json", "metadata_json"):
@@ -282,10 +542,10 @@ class Handler(SimpleHTTPRequestHandler):
             raise ValueError("Request is too large")
         return json.loads(self.rfile.read(size) or b"{}")
 
-    def read_multipart(self):
+    def read_multipart(self, maximum=MAX_UPLOAD):
         size = int(self.headers.get("Content-Length", "0"))
-        if size > MAX_UPLOAD:
-            raise ValueError("Upload is too large (30 MB maximum per request)")
+        if size > maximum:
+            raise ValueError(f"Upload is too large ({maximum // (1024 * 1024)} MB maximum per request)")
         raw = self.rfile.read(size)
         message = BytesParser(policy=default).parsebytes(
             b"Content-Type: " + self.headers.get("Content-Type", "").encode() + b"\r\nMIME-Version: 1.0\r\n\r\n" + raw)
@@ -306,7 +566,10 @@ class Handler(SimpleHTTPRequestHandler):
             devices, avds, profiles = inventory()
             return self.json({"apps": APP_SCHEMAS, "creators": creators, "accounts": accounts,
                               "devices": devices, "avds": avds, "phoneProfiles": profiles,
-                              "mediaPipeline": VARIANTS_PATH.is_file()})
+                              "mediaPipeline": VARIANTS_PATH.is_file(),
+                              "phones": fleet_inventory(), "fleetHost": fleet_host()})
+        if parsed.path == "/api/phones":
+            return self.json({"phones": fleet_inventory(), "host": fleet_host()})
         match = re.fullmatch(r"/api/files/([a-zA-Z0-9_]+)", parsed.path)
         if match:
             with connect() as db:
@@ -405,11 +668,23 @@ class Handler(SimpleHTTPRequestHandler):
                     if value and len(value) <= 120 and (node.get("clickable") == "true" or node.get("checkable") == "true") and value not in labels:
                         labels.append(value)
                 return self.json({"labels": labels, "capturedAt": now()})
+            match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/(launch|stop)", parsed.path)
+            if match:
+                avd, action = match.groups()
+                result = launch_phone(avd) if action == "launch" else stop_phone(avd)
+                return self.json(result, 202)
+            match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/camera-video", parsed.path)
+            if match:
+                parts = [part for part in self.read_multipart(MAX_VIDEO_UPLOAD)
+                         if part.get_content_disposition() == "form-data" and part.get_filename()]
+                if len(parts) != 1:
+                    raise ValueError("Upload exactly one camera video")
+                return self.json(replace_camera_video(match.group(1), parts[0]), 202)
             return self.error_json(404, "Unknown API route")
         except (ValueError, json.JSONDecodeError) as exc:
             return self.error_json(400, str(exc))
         except subprocess.CalledProcessError:
-            return self.error_json(409, "Could not read the emulator screen")
+            return self.error_json(409, "The requested emulator operation failed")
         except Exception as exc:
             self.log_error("%s", exc)
             return self.error_json(500, str(exc))
