@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch, Mock
 from xml.sax.saxutils import escape
 
@@ -63,7 +64,259 @@ def interests_screen(progress=0):
             + '</hierarchy>')
 
 
+def email_screen():
+    return ('<hierarchy>' + ''.join('<node package="com.tinder" text="' + escape(text) + '"/>'
+        for text in ('Your email?', tinder.EMAIL_BODY, 'Sign in with Google')) +
+        '<node package="com.tinder" class="android.widget.EditText" '
+        'resource-id="com.tinder:id/collect_email_input_edit_text" text="Enter email"/>'
+        '<node package="com.tinder" text="Sign in with Google" enabled="true" clickable="true" bounds="[0,100][100,200]"/>'
+        '</hierarchy>')
+
+
+def google_accounts(count=1):
+    return ('<hierarchy><node package="com.google.android.gms" text="Choose an account"/>'
+        '<node package="com.google.android.gms" text="to continue to Tinder"/>' + ''.join(
+        '<node package="com.google.android.gms" enabled="true" clickable="true" bounds="[0,200][100,300]">'
+        f'<node package="com.google.android.gms" resource-id="com.google.android.gms:id/account_name" text="account{i}@example.invalid"/>'
+        '</node>' for i in range(count)) + '</hierarchy>')
+
+
 class TinderTests(unittest.TestCase):
+    def test_authorized_google_location_accuracy_uses_turn_on_only(self):
+        xml = self.fixture('location-accuracy.xml')
+        self.assertEqual(tinder.classify(xml), 'location-accuracy-prompt')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.allow_google_location_accuracy('test')
+        call.assert_called_once_with('test', 'shell', 'input', 'tap', '783', '1456')
+
+    def test_runner_connection_error_retries_once_then_stops(self):
+        xml = self.fixture('connection-error.xml')
+        self.assertEqual(tinder.classify(xml), 'connection-error')
+        with tempfile.TemporaryDirectory() as folder, patch.object(tinder, '_validate_device'), \
+                patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'retry_connection_error') as retry:
+            result = tinder.run_signup('test', 'Test', folder, Mock(),
+                accept_terms=True, accept_sms_terms=True, accept_house_rules=True,
+                gender='Woman', show_gender_on_profile=True, relationship_goal='New friends',
+                photos=('1','2','3','4'), transition_delay=0)
+        self.assertEqual(result, 2)
+        retry.assert_called_once_with('test')
+
+    def test_connection_retry_requires_validated_cellular_network(self):
+        xml = self.fixture('connection-error.xml')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call', return_value='Active default network: none'), \
+                patch.object(tinder, 'tap_resource') as retry:
+            with self.assertRaisesRegex(RuntimeError, 'not validated'):
+                tinder.retry_connection_error('test')
+        retry.assert_not_called()
+
+    def test_optional_page_transition_is_reobserved_without_another_tap(self):
+        xml = self.fixture('sexual-orientation.xml')
+        challenge = '<hierarchy><node package="com.tinder" text="Complete this CAPTCHA"/></hierarchy>'
+        with tempfile.TemporaryDirectory() as folder, patch.object(tinder, '_validate_device'), \
+                patch.object(tinder, 'read_ui', side_effect=[xml, challenge]), \
+                patch.object(tinder, 'skip_optional', side_effect=tinder.ScreenChanged('transition')) as skip:
+            result = tinder.run_signup('test', 'Test', folder, Mock(),
+                accept_terms=True, accept_sms_terms=True, accept_house_rules=True,
+                gender='Woman', show_gender_on_profile=True, relationship_goal='New friends',
+                photos=('1','2','3','4'), transition_delay=0)
+        self.assertEqual(result, 2)
+        skip.assert_called_once_with('test')
+    def fixture(self, name):
+        return (Path(__file__).parent / 'fixtures/tinder-signup' / name).read_text()
+
+    def test_discovery_preference_resumes_men_without_toggling_selection(self):
+        xml = self.fixture('discovery-men-selected.xml')
+        self.assertEqual(tinder.classify(xml), 'discovery-preference')
+        with patch.object(tinder, 'read_ui', side_effect=[xml, xml]), \
+                patch.object(tinder, 'tap_resource') as tap:
+            tinder.select_interested_in('test', 'Men')
+        tap.assert_called_once_with('test', xml, 'text_button')
+
+    def test_discovery_preference_selection_is_verified_before_next(self):
+        selected = self.fixture('discovery-men-selected.xml')
+        initial = selected.replace('selected="true"', 'selected="false"')
+        with patch.object(tinder, 'read_ui', side_effect=[initial, selected]), \
+                patch.object(tinder, 'tap_resource') as tap:
+            tinder.select_interested_in('test', 'Men')
+        self.assertEqual([c.args[2] for c in tap.call_args_list], ['men_selection', 'text_button'])
+        with patch.object(tinder, 'read_ui', side_effect=[initial, initial]), \
+                patch.object(tinder, 'tap_resource') as tap:
+            with self.assertRaisesRegex(RuntimeError, 'read-back'):
+                tinder.select_interested_in('test', 'Men')
+        self.assertEqual([c.args[2] for c in tap.call_args_list], ['men_selection'])
+
+    def test_maximum_distance_verifies_100_miles_before_next(self):
+        initial, maximum = self.fixture('distance-50.xml'), self.fixture('distance-maximum.xml')
+        with patch.object(tinder, 'read_ui', side_effect=[initial, maximum]), \
+                patch.object(tinder, 'adb_call') as call, patch.object(tinder, 'tap_resource') as next_button:
+            tinder.continue_maximum_distance('test')
+        self.assertIn(unittest.mock.call('test', 'shell', 'input', 'tap', '1037', '887'), call.call_args_list)
+        next_button.assert_called_once_with('test', maximum, 'text_button')
+        with patch.object(tinder, 'read_ui', side_effect=[initial, initial]), \
+                patch.object(tinder, 'adb_call'), patch.object(tinder, 'tap_resource') as next_button:
+            with self.assertRaisesRegex(RuntimeError, '100 Mi'):
+                tinder.continue_maximum_distance('test')
+        next_button.assert_not_called()
+
+    def test_education_uses_prefer_not_to_say_and_resumes_existing_choice(self):
+        initial, selected = self.fixture('education.xml'), self.fixture('education-declined.xml')
+        self.assertEqual(tinder.classify(initial), 'education')
+        with patch.object(tinder, 'read_ui', side_effect=[initial, selected]), \
+                patch.object(tinder, 'tap_label') as tap:
+            tinder.decline_education_detail('test')
+        self.assertEqual([c.args[2] for c in tap.call_args_list], ['Prefer Not to Say', 'Next'])
+        with patch.object(tinder, 'read_ui', side_effect=[selected, selected]), \
+                patch.object(tinder, 'tap_label') as tap:
+            tinder.decline_education_detail('test')
+        tap.assert_called_once_with('test', selected, 'Next')
+
+    def test_completed_compose_lifestyle_next_has_no_resource_id(self):
+        xml = self.fixture('lifestyle-complete-compose.xml')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.select_random_single_choice_traits('test', 'lifestyle')
+        self.assertEqual(call.call_count, 1)
+
+    def test_personality_variant_has_three_questions(self):
+        initial = self.fixture('personality-three.xml')
+        self.assertEqual(tinder.classify(initial), 'personality')
+        screens = [initial.replace('Next 0/3', f'Next {i}/3') for i in range(4)]
+        rng = Mock();rng.choice.side_effect = lambda values: values[0]
+        with patch.object(tinder, 'read_ui', side_effect=screens), \
+                patch.object(tinder, 'tap_label') as tap:
+            chosen = tinder.select_random_single_choice_traits('test', 'personality', rng)
+        self.assertEqual(len(chosen), 3)
+        self.assertEqual(tap.call_args.args[2], 'Next 3/3')
+
+    def test_interests_resume_after_subtitle_is_replaced_by_selected_chips(self):
+        initial = self.fixture('interests-one-selected.xml')
+        self.assertEqual(tinder.classify(initial), 'interests')
+        self.assertNotIn(tinder.INTERESTS_BODY, initial)
+        screens = [initial.replace('Next 1/10', f'Next {i}/10') for i in (1, 2, 3)]
+        rng = Mock();rng.sample.side_effect = lambda values, count: values[:count]
+        with patch.object(tinder, 'read_ui', side_effect=screens), \
+                patch.object(tinder, 'tap_label') as tap, \
+                patch.object(tinder, 'tap_resource') as next_button:
+            chosen = tinder.select_random_interests('test', rng)
+        self.assertEqual(len(chosen), 3)
+        self.assertEqual(chosen[0], 'Marvel')
+        self.assertEqual(tap.call_count, 2)
+        self.assertTrue(all(c.args[2] != 'Marvel' for c in tap.call_args_list))
+        next_button.assert_called_once()
+
+    def test_photo_picker_empty_selection_markers_do_not_count_as_selected(self):
+        def screen(values):
+            return '<hierarchy>' + ''.join(
+                '<node package="com.google.android.providers.media.module" '
+                'resource-id="com.google.android.providers.media.module:id/selected_order" '
+                f'text="{value}"/>' for value in values) + '</hierarchy>'
+        self.assertEqual(tinder._selected_photo_count(screen(['', '', '', ''])), 0)
+        self.assertEqual(tinder._selected_photo_count(screen(['1', '', '', ''])), 1)
+        self.assertEqual(tinder._selected_photo_count(screen(['1', '2', '3', '4'])), 4)
+        with self.assertRaisesRegex(RuntimeError, 'partial selection'):
+            tinder._selected_photo_count(screen(['2', '', '', '']))
+
+    def test_optional_orientation_screen_uses_only_skip_control(self):
+        xml = (Path(__file__).parent / 'fixtures/tinder-signup/sexual-orientation.xml').read_text()
+        self.assertEqual(tinder.classify(xml), 'sexual-orientation')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.skip_optional('test')
+        call.assert_called_once_with('test', 'shell', 'input', 'tap', '987', '135')
+
+    def test_new_gender_layout_selects_and_verifies_woman_and_visibility(self):
+        selected = (Path(__file__).parent / 'fixtures/tinder-signup/gender-parent-selected.xml').read_text()
+        initial = selected.replace('WomanSelected', 'WomanUnselected')
+        import xml.etree.ElementTree as ET
+        tree = ET.fromstring(selected)
+        for node in tree.iter('node'):
+            if node.get('resource-id') == 'com.tinder:id/show_my_orientation_checkbox':
+                node.set('checked', 'true')
+        visible = ET.tostring(tree, encoding='unicode')
+        self.assertEqual(tinder.classify(initial), 'gender')
+        with patch.object(tinder, 'read_ui', side_effect=[initial, selected, visible]), \
+                patch.object(tinder, 'tap_label') as gender, \
+                patch.object(tinder, 'tap_resource') as control:
+            tinder.select_gender('test', 'Woman', True)
+        gender.assert_called_once_with('test', initial, 'Woman')
+        self.assertEqual([c.args[2] for c in control.call_args_list],
+                         ['show_my_orientation_checkbox', 'text_button'])
+
+    def test_new_gender_layout_does_not_toggle_off_existing_woman_selection(self):
+        xml = (Path(__file__).parent / 'fixtures/tinder-signup/gender-parent-selected.xml').read_text()
+        with patch.object(tinder, 'read_ui', side_effect=[xml, xml]), \
+                patch.object(tinder, 'tap_label') as gender, \
+                patch.object(tinder, 'tap_resource') as control:
+            tinder.select_gender('test', 'Woman', False)
+        gender.assert_not_called()
+        control.assert_called_once_with('test', xml, 'text_button')
+
+    def test_new_gender_layout_refuses_failed_selection_or_conflicting_choices(self):
+        selected = (Path(__file__).parent / 'fixtures/tinder-signup/gender-parent-selected.xml').read_text()
+        initial = selected.replace('WomanSelected', 'WomanUnselected')
+        with patch.object(tinder, 'read_ui', side_effect=[initial, initial]), \
+                patch.object(tinder, 'tap_label'), patch.object(tinder, 'tap_resource') as control:
+            with self.assertRaisesRegex(RuntimeError, 'selection read-back'):
+                tinder.select_gender('test', 'Woman', True)
+        control.assert_not_called()
+        conflict = selected.replace('ManUnselected', 'ManSelected')
+        with patch.object(tinder, 'read_ui', return_value=conflict), \
+                patch.object(tinder, 'tap_label') as gender, patch.object(tinder, 'tap_resource') as control:
+            with self.assertRaisesRegex(RuntimeError, 'Other gender choices'):
+                tinder.select_gender('test', 'Woman', True)
+        gender.assert_not_called()
+        control.assert_not_called()
+    def test_observed_email_screen_opens_google_without_entering_email(self):
+        self.assertEqual(tinder.classify(email_screen()), 'email-entry')
+        with patch.object(tinder, 'read_ui', return_value=email_screen()), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.use_google_for_email('test')
+        call.assert_called_once_with('test', 'shell', 'input', 'tap', '50', '150')
+
+    def test_single_google_account_is_selected_without_logging_identity(self):
+        xml = google_accounts()
+        self.assertEqual(tinder.classify(xml), 'google-account-choice')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call') as call:
+            tinder.choose_single_google_account('test')
+        call.assert_called_once_with('test', 'shell', 'input', 'tap', '50', '250')
+        self.assertNotIn('account0@example.invalid', tinder.sanitized_xml(xml))
+
+    def test_multiple_google_accounts_require_manual_choice(self):
+        with patch.object(tinder, 'read_ui', return_value=google_accounts(2)), \
+                patch.object(tinder, 'adb_call') as call:
+            with self.assertRaisesRegex(RuntimeError, 'manually'):
+                tinder.choose_single_google_account('test')
+        call.assert_not_called()
+
+    def test_google_security_check_takes_priority_over_account_chooser(self):
+        xml = google_accounts().replace('</hierarchy>',
+            '<node package="com.google.android.gms" text="Verify it’s you"/></hierarchy>')
+        self.assertEqual(tinder.classify(xml), 'human-verification-manual-stop')
+        with patch.object(tinder, 'read_ui', return_value=xml), \
+                patch.object(tinder, 'adb_call') as call:
+            with self.assertRaisesRegex(RuntimeError, 'Expected Google account chooser'):
+                tinder.choose_single_google_account('test')
+        call.assert_not_called()
+
+    def test_runner_google_email_requires_flag_and_connects_both_screens(self):
+        challenge = '<hierarchy><node package="com.tinder" text="Complete this CAPTCHA"/></hierarchy>'
+        for authorized in (False, True):
+            with self.subTest(authorized=authorized), tempfile.TemporaryDirectory() as folder, \
+                    patch.object(tinder, '_validate_device'), \
+                    patch.object(tinder, 'read_ui', side_effect=[email_screen(), google_accounts(), challenge]), \
+                    patch.object(tinder, 'use_google_for_email') as open_google, \
+                    patch.object(tinder, 'choose_single_google_account') as choose:
+                result = tinder.run_signup('test', 'Test', folder, Mock(),
+                    accept_terms=True, accept_sms_terms=True, accept_house_rules=True,
+                    gender='Woman', show_gender_on_profile=True, relationship_goal='New friends',
+                    photos=('1','2','3','4'), use_google_email=authorized, transition_delay=0)
+                self.assertEqual(result, 2)
+                self.assertEqual(open_google.call_count, int(authorized))
+                self.assertEqual(choose.call_count, int(authorized))
     def test_random_single_choice_traits_select_one_per_category(self):
         rng = Mock()
         rng.choice.side_effect = lambda values: values[0]
@@ -575,6 +828,37 @@ class TinderTests(unittest.TestCase):
                 patch.object(tinder, 'button_center', return_value=(50, 150)):
             tinder.enter_phone('test', provider, submit=True)
         self.assertEqual(call.call_args.args, ('test', 'shell', 'input', 'tap', '50', '150'))
+
+    def test_us_phone_accepts_national_or_country_prefixed_input(self):
+        xml = ('<hierarchy><node package="com.tinder" text="Can we get your number?"/>'
+               '<node package="com.tinder" text="US +1"/>'
+               '<node package="com.tinder" resource-id="com.tinder:id/phoneNumberInputView" '
+               'text="Phone Number" bounds="[0,0][100,100]"/></hierarchy>')
+        entered = xml.replace('text="Phone Number"', 'text="2025550123"')
+        for number in ('2025550123', '(202) 555-0123', '12025550123', '+1 (202) 555-0123'):
+            with self.subTest(number=number):
+                provider = Mock()
+                provider.phone_number.return_value = number
+                with patch.object(tinder, 'read_ui', side_effect=[xml, entered]), \
+                        patch.object(tinder, 'adb_call'), \
+                        patch.object(tinder.subprocess, 'run') as run:
+                    tinder.enter_phone('test', provider)
+                self.assertEqual(run.call_args.kwargs['input'], 'input text 2025550123\n')
+
+    def test_invalid_or_foreign_phone_is_rejected_before_any_input(self):
+        xml = '<hierarchy><node package="com.tinder" text="US +1"/></hierarchy>'
+        for number in ('202555012', '+442079460123', '+2025550123', 'abc2025550123'):
+            with self.subTest(number=number), \
+                    patch.object(tinder, 'classify', return_value='phone-entry'), \
+                    patch.object(tinder, 'read_ui', return_value=xml), \
+                    patch.object(tinder, 'adb_call') as call, \
+                    patch.object(tinder.subprocess, 'run') as run:
+                provider = Mock()
+                provider.phone_number.return_value = number
+                with self.assertRaisesRegex(RuntimeError, '10-digit US'):
+                    tinder.enter_phone('test', provider)
+                call.assert_not_called()
+                run.assert_not_called()
 
     def test_google_number_hint_is_recognized_without_using_suggested_number(self):
         xml = '<hierarchy><node package="com.google.android.gms" text="Choose a phone number"/></hierarchy>'

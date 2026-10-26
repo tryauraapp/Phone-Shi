@@ -17,12 +17,14 @@ state is retained.
 | Personalized profile welcome | `--start-profile` taps the observed “Let’s go”; personalized greeting is excluded from saved fixtures |
 | Birth date | `--enter-birth-date` privately prompts for the actual adult DOB (YYYY-MM-DD), fills observed MM/DD/YYYY fields, verifies all eight digits, then taps Next; never invents a date |
 | Gender | `--select-gender Woman --gender-visibility show` applies explicit choices, verifies visibility, and taps enabled Next; no randomization |
-| Distance preference | `--continue-default-distance` keeps the observed 50-mile default and taps Next; refuses changed distance values |
+| Discovery preference | Runner defaults to Men for Woman, Women for Man as configured for this workflow; override with `--signup-interested-in`; selection is verified |
+| Distance preference | Runner defaults to the observed maximum, 100 Mi, and verifies it before Next; `--signup-distance default` keeps 50 Mi |
+| Education | Selects and verifies Prefer Not to Say, then continues |
 | Relationship goals | `--relationship-goal` selects an authorized option through its accessibility label, then enabled Next |
 | School | Recognized by static labels and school-title ID; optional skip without inventing a school |
 | Lifestyle habits | Runner randomly selects one reviewed answer for each of drinking, smoking, exercise and pets; requires the counter to advance from 0/4 to 4/4 |
-| Personality / basics | Runner randomly selects one reviewed answer for each of communication, love language, education and zodiac; requires the counter to advance from 0/4 to 4/4 |
-| Interests | Runner randomly selects 2–3 distinct reviewed visible interests and verifies the counter after every choice |
+| Personality / basics | Supports recorded three/four-question variants and verifies each counter increment; education is a separate privacy choice in the new layout |
+| Interests | Runner selects three distinct reviewed visible interests, verifies each counter, and preserves reviewed selected chips on resume |
 | Add recent photos | `--open-photo-picker` opens first empty slot; onboarding Next remains a manual stop boundary |
 | Android photo picker | `--pick-photo-index` plus repeated `--photo` paths require an exact library hash match before selecting; `--confirm-four-photos` requires exactly four selections and Add (4) |
 | Edit photos | `--finish-photo-edit` taps Done only in the observed four-photo editor, never onboarding Next |
@@ -42,6 +44,31 @@ python3 tinder_signup.py --serial emulator-5554 --avd YOUR_AVD --output .local/t
 To run the recorded flow, explicitly supply every consent/choice and the exact
 four-photo library. The phone number, SMS code, first name, and birth date are
 requested through hidden interactive prompts and are not written to fixtures:
+
+Add `--use-google-email` to use **Sign in with Google** on the observed
+**Your email?** screen after SMS. The runner selects the single signed-in Google
+account on the Tinder-specific chooser. Multiple accounts require a manual
+choice. Account identifiers are omitted from fixtures. Google security checks
+and unfamiliar consent screens remain manual. The observed single-account path
+advances directly to House Rules without a separate consent screen.
+Both recorded gender layouts are supported, including the newer parent-gender
+rows. The optional sexual-orientation page is skipped; no orientation is chosen
+or displayed by the runner.
+
+The signup runner defaults to the maximum observed distance of **100 Mi**.
+`--signup-distance default` retains 50 Mi instead. This workflow defaults to
+Men when gender is Woman and Women when gender is Man; an explicit
+`--signup-interested-in` overrides it. Education uses **Prefer Not to Say**.
+Recorded Compose trait buttons, three/four-question personality layouts,
+interests whose subtitle changes to selected chips, and empty photo-picker
+selection markers are supported. Three interests are selected to enable Next.
+
+`--allow-location-accuracy` separately authorizes Google's **Turn on** action,
+including Wi-Fi scanning inside the emulator. Without it the runner declines;
+if Tinder then refuses location access, it stops and explains the required flag.
+The observed location error permits one retry when location is authorized.
+The observed **This is awkward** connection error permits one retry only when
+Android reports validated cellular Internet, then stops if the error persists.
 
 ```sh
 python3 tinder_signup.py \
@@ -72,7 +99,7 @@ rejected verification code. A manual-stop exit uses status 2.
 
 Lifestyle and personality questions are single-choice: the runner chooses one
 answer from each reviewed option group. Interests are multi-choice: it chooses
-two or three distinct visible options. Every selection must increment Tinder's
+three distinct visible options. Every selection must increment Tinder's
 displayed counter exactly; a partial, preselected, or changed layout is a hard
 stop. The same bounded behavior is available for the current screen with
 `--randomize-profile-traits`.
@@ -107,3 +134,6 @@ it is not a local-only mock. The UI does not identify the cause of the lock.
 `ManualCredentials` uses hidden prompts. A future API implementation can supply
 the same methods; no API endpoint or provider credentials are configured yet.
 Phone entry sends its value to ADB through stdin and excludes it from fixtures.
+On the US +1 screen, enter the ten national digits; optional `1` or `+1`
+prefixes, spaces, parentheses and hyphens are also accepted. The script keeps
+the displayed country code and fills only the national number.

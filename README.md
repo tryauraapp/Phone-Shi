@@ -213,12 +213,33 @@ for signup when a terminal is attached.
 Google sign-in selects personal use and skips optional recovery and address
 entry. Google security checks remain manual. Non-interactive runs print a
 Google Play resume command. `--no-play-store` skips only the Google Play step.
+If Play returns to its sign-in landing page, the helper retries Sign in up to
+three times. An already signed-in store can continue without a terminal;
+credential entry and manual security checks still require one.
+If Play crashes to the launcher or shows its crash dialog during sign-in or
+installation, the helper reopens the requested listing up to three times across
+the install flow. Google security challenges still require manual completion.
 
 For a device-only run without the optional app or signup:
 
 ```sh
-./setup_galaxy_s25_avd.sh --non-interactive --no-apps --no-bumble-signup
+./setup_galaxy_s25_avd.sh --non-interactive --no-apps --no-bumble-install
 ```
+
+Use `--no-bumble-install` (or `--no-bumble`) to skip both Bumble installation
+and signup while retaining other explicitly requested apps. `--no-bumble-signup`
+only skips onboarding and still installs Bumble by default.
+
+The initial stock boot requires Android-validated LTE data in every signup mode.
+If SIM/carrier initialization stalls, setup verifies the selected AVD, reboots
+that new phone once, and repeats the LTE check. A repeated failure stops setup;
+Wi-Fi is not used as a fallback. Later setup stages do not use this reboot retry.
+Before the isolation reboot, setup explicitly stops this phone's host signal and
+GPS controllers and confirms their locks are released. It starts them again
+after Android returns; a guest reboot alone does not stop host processes.
+If the isolation reboot leaves the SIM unloaded with missing radio callbacks,
+setup restarts the emulator radio service once and repeats LTE validation.
+An already loaded SIM or an unrelated network failure does not trigger it.
 
 For explicit resources and an app package:
 
@@ -299,6 +320,9 @@ Each signup helper verifies that certificate, its immutable artifact hashes,
 the installed app, working shell root and that app's Magisk isolation before it
 can begin. This permits a non-interactive phone build to finish before the app
 is installed, but never permits signup in that pending state.
+Complete device-only builds also create the certificate, with Bumble, Tinder
+and POF recorded for later installation. Installed supported apps must pass
+their package checks; deliberately reduced fixture builds remain uncertified.
 Deleting or changing certified evidence, using another AVD, or running an app
 that was not certified blocks signup. Read-only POF screen observation remains
 available without the certificate.

@@ -17,8 +17,15 @@ add_process() {
   fi
 }
 add_process "$package"
-# Verified secondary process in the bundled Bumble version, even before launch.
-[ "$package" != com.bumble.app ] || add_process com.bumble.app:light
+# Register known secondary processes before their first launch. Discovering only
+# running processes misses these on a freshly provisioned AVD.
+case "$package" in
+  com.bumble.app) add_process "$package:light" ;;
+  com.eltavine.duckdetector)
+    add_process "$package:helper_probe"
+    add_process "$package:zygisk_fd_detector"
+    ;;
+esac
 ps -A -o NAME | while IFS= read -r process; do
   case "$process" in "$package":*) add_process "$process" ;; esac
 done

@@ -34,3 +34,8 @@ __pycache__/
 /pof-signup/*
 !/pof-signup/README.md
 !/pof-signup/observed-flow.json
+/models/*.tflite
+.venv/
+*.mp4
+*.mov
+

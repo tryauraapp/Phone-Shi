@@ -13,6 +13,7 @@ import re
 import shutil
 import secrets
 import time
+import subprocess
 from pathlib import Path
 import sys
 from urllib.parse import unquote, urlsplit
@@ -350,6 +351,22 @@ async def launch(command, env, upstream, diagnostic=None):
                 await process.wait()
 
 
+def ensure_adb_server(sdk, env):
+    """Finish ADB startup before emulator children inherit its crash handler.
+
+    ADB aborts when another server wins the listener race. Serialize our
+    launchers and reuse the existing server instead of letting emulator
+    startup and its first ADB commands compete to start one.
+    """
+    import fcntl
+    user_dir = Path(env.get('ANDROID_USER_HOME') or Path.home() / '.android')
+    user_dir.mkdir(parents=True, exist_ok=True)
+    with (user_dir / 's25-adb-start.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        subprocess.run([str(sdk / 'platform-tools/adb'), 'start-server'],
+                       env=env, check=True, timeout=20)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--proxy')
@@ -455,6 +472,10 @@ def main():
             parser.exit(2, 'Could not stage the private launch ramdisk.\n')
     if '-http-proxy' in extra:
         parser.error('Use --proxy or --proxy-file instead of -http-proxy.')
+    try:
+        ensure_adb_server(sdk, env)
+    except (OSError, subprocess.SubprocessError):
+        parser.exit(2, 'ADB server startup failed; emulator was not launched. Check the ADB log and port 5037.\n')
     print('Launching with host proxy enabled.' if proxy else 'Launching without a host proxy.', flush=True)
     diagnostic = None
     try:

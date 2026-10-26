@@ -56,9 +56,16 @@ def read_ui(serial, call=adb_call, pause=time.sleep):
     # Two recovery attempts per read; the caller's wall-clock deadline controls
     # longer waits. Each device command and its host process are time bounded.
     for attempt in range(3):
-        xml = call(serial, 'shell',
-                   'timeout 8 uiautomator dump --compressed /data/local/tmp/s25-setup-ui.xml '
-                   '>/dev/null 2>&1 && cat /data/local/tmp/s25-setup-ui.xml')
+        try:
+            xml = call(serial, 'shell',
+                       'timeout 8 uiautomator dump --compressed /data/local/tmp/s25-setup-ui.xml '
+                       '>/dev/null 2>&1 && cat /data/local/tmp/s25-setup-ui.xml')
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            transient = isinstance(error, subprocess.TimeoutExpired) or error.returncode in (124, 137)
+            if not transient or attempt == 2:
+                raise
+            pause(1)
+            continue
         center = anr_wait_center(xml)
         if center is None:
             return xml

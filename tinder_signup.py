@@ -21,8 +21,15 @@ import xml.etree.ElementTree as ET
 from setup_ui import adb_call, read_ui
 from play_store_install import button_center
 from phone_setup_guard import verify_phone_setup
+from setup_network import validated_default
 
 PACKAGE = 'com.tinder'
+
+
+class ScreenChanged(RuntimeError):
+    """The last observed page transitioned before its guarded handler ran."""
+
+
 INVALID_CODE = 'The code you entered is invalid — please try again.'
 HOUSE_RULES = {'Welcome to Tinder.', 'Please follow these House Rules.',
                'Be yourself.', 'Make sure your photos, age, and bio are true to who you are.',
@@ -35,13 +42,35 @@ LABELS = {TERMS, 'Tinder logo', 'Allow Tinder to send you notifications?', 'Allo
           'Don’t allow', "Don't allow", 'Continue with Google', 'Continue with Phone Number',
           'Continue with Line', 'Continue with Email', 'Trouble signing in?'}
 LABELS.update(HOUSE_RULES)
+LOCATION_ACCESS_ERROR = 'You need to allow access to location in order to use Tinder.\nPlease try again and hit OK.'
+LABELS.update({'Oops', LOCATION_ACCESS_ERROR, 'TRY AGAIN'})
+CONNECTION_ERROR = 'Something went wrong. Check your connection and try again.'
+LABELS.update({'This is awkward', CONNECTION_ERROR, 'Retry'})
+EMAIL_BODY = "Don't lose access to your account, verify your email."
+LABELS.update({'Your email?', 'Enter email', EMAIL_BODY, 'Sign in with Google',
+               'Verify instantly by connecting your Google account',
+               'Choose an account', 'to continue to Tinder', 'Add another account'})
 LABELS.update({'What’s your first name?', 'This is how it’ll appear on your profile.\nCan’t change it later.'})
 PROFILE_WELCOME = 'There’s a lot out there to discover. But let’s get your profile set up first.'
 LABELS.update({PROFILE_WELCOME, 'Let’s go', 'Edit name'})
 LABELS.update({'Your b-day?', 'Your profile shows your age, not your birth date.', '/'})
 LABELS.update({'What’s your gender?', 'Woman', 'Man', 'Show my gender on my profile'})
+LABELS.update({'Beyond Binary', 'Show gender on profile', 'Learn how Tinder uses this info',
+               'Add more about your gender (optional)',
+               'Select all that describe you to help us show your profile to the right people. You can add more details if you’d like.',
+               'WomanSelected', 'WomanUnselected', 'ManSelected', 'ManUnselected',
+               'Beyond BinarySelected', 'Beyond BinaryUnselected'})
+LABELS.update({'What’s your sexual orientation?',
+               'Select all that describe you to reflect your identity.',
+               'Show sexual orientation on profile'})
+LABELS.update({'Who are you interested in seeing?', 'Men', 'Women', 'Everyone',
+               'Select all that apply to help us recommend the right people for you.'})
+LABELS.update({'What’s your education level?', 'This will help improve your experience on Tinder.',
+               'Prefer Not to Say', 'Bachelors', 'In College', 'High School', 'PhD',
+               'In Grad School', 'Masters', 'Trade School'})
 DISTANCE_BODY = 'Use the slider to set the maximum distance you want your potential matches to be located.'
 LABELS.update({'Your distance preference?', DISTANCE_BODY, 'Distance Preference', '50 Mi',
+               '100 Mi',
                'You can change preferences later in Settings'})
 RELATIONSHIP_GOALS = {'Long-term partner', 'Long-term, open to short', 'Short-term, open to long',
                       'Short-term fun', 'New friends', 'Still figuring it out'}
@@ -97,6 +126,7 @@ LABELS.update({'What are you into?', INTERESTS_BODY, 'Creativity', 'Freelancing'
     'Food and drink', 'Foodie', 'Food tours', 'Soto', 'Maggi', 'Biryani', 'Papeda', 'Sambal',
     'Sate', 'Gudeg', 'Gaming', 'Ludo', 'Sega', 'E-Sports', 'PlayStation', 'Fortnite',
     'Among Us', 'Atari', 'Xbox', 'League of Legends', 'Next 0/10'})
+LABELS.update(f'Next {i}/{total}' for total in (3, 4, 10) for i in range(total+1))
 PHOTOS_BODY = 'Upload 2 photos to start. Add 4 or more to make your profile stand out.'
 LABELS.update({'Add your recent pics', PHOTOS_BODY, 'Add photo'})
 MEDIA_PACKAGES = {'com.google.android.providers.media.module', 'com.android.providers.media.module'}
@@ -140,7 +170,7 @@ class CredentialsProvider(Protocol):
 
 class ManualCredentials:
     def phone_number(self):
-        return getpass.getpass('Tinder phone number including country code (hidden; not saved): ').strip()
+        return getpass.getpass('Tinder US phone number (10 digits; optional 1 or +1; hidden, not saved): ').strip()
 
     def verification_code(self):
         return getpass.getpass('Tinder verification code (hidden; not saved): ').strip()
@@ -172,6 +202,39 @@ def agree_house_rules(serial):
         raise RuntimeError('House Rules agreement control missing or ambiguous')
     adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
     print('Tapped explicitly authorized House Rules agreement.', flush=True)
+
+
+def allow_google_location_accuracy(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'location-accuracy-prompt':
+        raise RuntimeError('Expected observed Google Location Accuracy prompt')
+    buttons = [n for n in ET.fromstring(xml).iter('node')
+               if n.get('package') == 'com.google.android.gms'
+               and n.get('resource-id') == 'android:id/button1' and n.get('text') == 'Turn on'
+               and n.get('enabled') == 'true' and n.get('clickable') == 'true']
+    if len(buttons) != 1:
+        raise RuntimeError('Location Accuracy Turn on control missing or ambiguous')
+    point = button_center(xml, 'Turn on')
+    if not point:
+        raise RuntimeError('Location Accuracy Turn on control bounds unavailable')
+    adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
+    print('Enabled explicitly authorized Google Location Accuracy and Wi-Fi scanning.', flush=True)
+
+
+def retry_connection_error(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'connection-error':
+        raise RuntimeError('Expected observed Tinder connection error')
+    if not validated_default(adb_call(serial, 'shell', 'dumpsys', 'connectivity'), 'CELLULAR'):
+        raise RuntimeError('Android cellular connection is not validated; no Tinder retry taken')
+    tap_resource(serial, xml, 'text_button')
+
+
+def retry_location_access(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'location-access-error':
+        raise RuntimeError('Expected observed Tinder location access error')
+    tap_resource(serial, xml, 'tryAgainButton')
 
 
 def decline_optional_wifi_scanning(serial):
@@ -294,7 +357,8 @@ def confirm_four_photos(serial, photos):
     if classify(xml) != 'android-photo-picker' or verify_supplied_photo_library(serial, photos) != 4:
         raise RuntimeError('Expected picker and exact four supplied photos')
     nodes = [n for n in ET.fromstring(xml).iter('node') if n.get('package') in MEDIA_PACKAGES]
-    orders = [n.get('text') for n in nodes if n.get('resource-id', '').endswith(':id/selected_order')]
+    orders = [n.get('text') for n in nodes
+              if n.get('resource-id', '').endswith(':id/selected_order') and n.get('text')]
     if sorted(orders) != ['1', '2', '3', '4']:
         raise RuntimeError('Exactly four selected photos required; no confirmation made')
     buttons = [n for n in nodes if n.get('resource-id', '').endswith(':id/button_add') and n.get('text') == 'Add (4)'
@@ -310,8 +374,8 @@ def confirm_four_photos(serial, photos):
 
 def skip_optional(serial):
     xml = read_ui(serial)
-    if classify(xml) not in {'school', 'lifestyle', 'personality', 'interests', 'bio-and-prompt'}:
-        raise RuntimeError('Expected reviewed optional screen; no skip taken')
+    if classify(xml) not in {'school', 'lifestyle', 'personality', 'interests', 'bio-and-prompt', 'sexual-orientation'}:
+        raise ScreenChanged('Expected reviewed optional screen; no skip taken')
     tap_resource(serial, xml, 'onboarding_skip_button')
 
 
@@ -331,13 +395,23 @@ def _visible_reviewed_options(xml, options):
 
 
 def select_random_single_choice_traits(serial, state, rng=None):
-    """Choose one reviewed answer for each of four single-choice trait questions."""
+    """Choose one reviewed answer per question on the recorded three/four-question layouts."""
     groups = LIFESTYLE_OPTIONS if state == 'lifestyle' else PERSONALITY_OPTIONS if state == 'personality' else None
     if groups is None:
         raise RuntimeError('Expected lifestyle or personality single-choice screen')
     rng = rng or random
     current = read_ui(serial)
-    if classify(current) != state or _selection_progress(current, 4) != 0:
+    if state == 'personality':
+        visible_questions = {n.get('text') for n in ET.fromstring(current).iter('node') if n.get('package') == PACKAGE}
+        groups = {question: options for question, options in groups.items() if question in visible_questions}
+    total = len(groups)
+    if total not in (3, 4):
+        raise RuntimeError('Unexpected number of reviewed trait questions')
+    if classify(current) == state and _selection_progress(current, total) == total:
+        tap_reviewed_next(serial, current, f'Next {total}/{total}')
+        print(f'Continued the completed {state} page without changing its answers.', flush=True)
+        return []
+    if classify(current) != state or _selection_progress(current, total) != 0:
         raise RuntimeError('Expected an untouched observed single-choice trait screen')
     chosen = []
     for progress, options in enumerate(groups.values(), start=1):
@@ -347,30 +421,35 @@ def select_random_single_choice_traits(serial, state, rng=None):
         choice = rng.choice(visible)
         tap_label(serial, current, choice)
         current = read_ui(serial)
-        if classify(current) != state or _selection_progress(current, 4) != progress:
+        if classify(current) != state or _selection_progress(current, total) != progress:
             raise RuntimeError('Trait selection count did not advance as expected; Next not tapped')
         chosen.append(choice)
-    tap_resource(serial, current, 'text_button')
+    tap_reviewed_next(serial, current, f'Next {total}/{total}')
     print(f'Randomly selected one reviewed answer for each {state} question and tapped Next.', flush=True)
     return chosen
 
 
 def select_random_interests(serial, rng=None):
-    """Choose two or three distinct reviewed interests, then advance."""
+    """Choose three distinct reviewed interests, preserving reviewed selections on resume."""
     rng = rng or random
     current = read_ui(serial)
-    if classify(current) != 'interests' or _selection_progress(current, 10) != 0:
-        raise RuntimeError('Expected an untouched observed interests screen')
-    visible = _visible_reviewed_options(current, INTEREST_OPTIONS)
+    if classify(current) != 'interests':
+        raise RuntimeError('Expected observed interests screen')
+    progress = _selection_progress(current, 10)
+    existing = [n.get('text') for n in ET.fromstring(current).iter('node')
+                if n.get('package') == PACKAGE and n.get('resource-id') == PACKAGE + ':id/item_chip']
+    if progress > 3 or len(existing) != progress or any(value not in INTEREST_OPTIONS for value in existing):
+        raise RuntimeError('Existing interests do not match the reviewed resumable selection')
+    visible = [value for value in _visible_reviewed_options(current, INTEREST_OPTIONS) if value not in existing]
     if len(visible) < 3:
         raise RuntimeError('Fewer than three reviewed interests are visible')
-    chosen = rng.sample(visible, rng.randint(2, 3))
-    for progress, choice in enumerate(chosen, start=1):
+    chosen = existing + rng.sample(visible, 3-progress)
+    for progress, choice in enumerate(chosen[len(existing):], start=len(existing)+1):
         tap_label(serial, current, choice)
         current = read_ui(serial)
         if classify(current) != 'interests' or _selection_progress(current, 10) != progress:
             raise RuntimeError('Interest selection count did not advance as expected; Next not tapped')
-    tap_resource(serial, current, 'text_button')
+    tap_reviewed_next(serial, current, f'Next {len(chosen)}/10')
     print(f'Randomly selected {len(chosen)} distinct reviewed interests and tapped Next.', flush=True)
     return chosen
 
@@ -432,6 +511,38 @@ def continue_default_distance(serial):
     print('Kept observed 50-mile default distance and tapped Next.', flush=True)
 
 
+def continue_maximum_distance(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'distance-preference':
+        raise RuntimeError('Expected Tinder distance preference screen')
+    sliders = [n for n in ET.fromstring(xml).iter('node')
+               if n.get('package') == PACKAGE and n.get('class') == 'android.widget.SeekBar'
+               and n.get('enabled') == 'true']
+    if len(sliders) != 1:
+        raise RuntimeError('Distance slider missing or ambiguous')
+    bounds = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', sliders[0].get('bounds', ''))
+    if not bounds:
+        raise RuntimeError('Distance slider bounds unavailable')
+    left, top, right, bottom = map(int, bounds.groups())
+    adb_call(serial, 'shell', 'input', 'tap', str(right-1), str((top+bottom)//2))
+    adb_call(serial, 'shell', 'input', 'keyevent', 'KEYCODE_MOVE_END')
+    current = read_ui(serial)
+    if classify(current) != 'distance-preference' or not any(
+            n.get('package') == PACKAGE and n.get('text') == '100 Mi'
+            for n in ET.fromstring(current).iter('node')):
+        raise RuntimeError('Maximum distance read-back did not match 100 Mi; Next not tapped')
+    tap_resource(serial, current, 'text_button')
+    print('Maximum distance verified at 100 Mi and Next tapped.', flush=True)
+
+
+def tap_reviewed_next(serial, xml, label):
+    if any(n.get('package') == PACKAGE and n.get('resource-id') == PACKAGE + ':id/text_button'
+           for n in ET.fromstring(xml).iter('node')):
+        tap_resource(serial, xml, 'text_button')
+    else:
+        tap_label(serial, xml, label)
+
+
 def tap_resource(serial, xml, resource_id):
     nodes = [n for n in ET.fromstring(xml).iter('node')
              if n.get('package') == PACKAGE and n.get('resource-id') == PACKAGE + ':id/' + resource_id]
@@ -444,6 +555,54 @@ def tap_resource(serial, xml, resource_id):
     adb_call(serial, 'shell', 'input', 'tap', str((l+r)//2), str((t+b)//2))
 
 
+def decline_education_detail(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'education':
+        raise RuntimeError('Expected observed education screen')
+    def declined(current):
+        tree = ET.fromstring(current)
+        parents = {child: parent for parent in tree.iter() for child in parent}
+        labels = [n for n in tree.iter('node') if n.get('package') == PACKAGE and n.get('text') == 'Prefer Not to Say']
+        if len(labels) != 1:
+            return False
+        target = labels[0]
+        while target.get('checkable') != 'true' and target in parents:
+            target = parents[target]
+        return target.get('checked') == 'true'
+    if not declined(xml):
+        tap_label(serial, xml, 'Prefer Not to Say')
+    current = read_ui(serial)
+    if classify(current) != 'education' or not declined(current):
+        raise RuntimeError('Education privacy choice did not match; Next not tapped')
+    tap_label(serial, current, 'Next')
+    print('Selected Prefer Not to Say for education and continued.', flush=True)
+
+
+def select_interested_in(serial, preference):
+    options = {'Men': 'men_selection', 'Women': 'women_selection',
+               'Beyond Binary': 'beyond_binary_selection', 'Everyone': 'everyone_selection'}
+    if preference not in options:
+        raise RuntimeError('Explicit supported discovery preference required')
+    xml = read_ui(serial)
+    if classify(xml) != 'discovery-preference':
+        raise RuntimeError('Expected Tinder discovery preference screen')
+    def selections(current):
+        return [n.get('resource-id') for n in ET.fromstring(current).iter('node')
+                if n.get('package') == PACKAGE and n.get('selected') == 'true'
+                and n.get('resource-id') in {PACKAGE + ':id/' + rid for rid in options.values()}]
+    desired = PACKAGE + ':id/' + options[preference]
+    selected = selections(xml)
+    if selected and selected != [desired]:
+        raise RuntimeError('Other discovery preferences are selected; review manually')
+    if not selected:
+        tap_resource(serial, xml, options[preference])
+    current = read_ui(serial)
+    if classify(current) != 'discovery-preference' or selections(current) != [desired]:
+        raise RuntimeError('Discovery preference read-back did not match; Next not tapped')
+    tap_resource(serial, current, 'text_button')
+    print('Authorized discovery preference verified and Next tapped.', flush=True)
+
+
 def select_gender(serial, gender, show_on_profile):
     """Apply explicit user choices only; never randomize identity or visibility."""
     if gender not in ('Woman', 'Man') or not isinstance(show_on_profile, bool):
@@ -451,20 +610,41 @@ def select_gender(serial, gender, show_on_profile):
     xml = read_ui(serial)
     if classify(xml) != 'gender':
         raise RuntimeError('Expected observed Tinder gender screen')
-    tap_resource(serial, xml, 'gender_female_selection_button' if gender == 'Woman' else 'gender_male_selection_button')
+    modern = any(n.get('resource-id') == PACKAGE + ':id/rvParentGenders'
+                 for n in ET.fromstring(xml).iter('node'))
+    checkbox_id = 'show_my_orientation_checkbox' if modern else 'show_gender_on_profile_checkbox'
+    if modern:
+        rows = [n for n in ET.fromstring(xml).iter('node')
+                if n.get('resource-id') == PACKAGE + ':id/parentGenderContainer']
+        selected = [n.get('content-desc') for n in rows if n.get('content-desc', '').endswith('Selected')]
+        if selected and selected != [gender + 'Selected']:
+            raise RuntimeError('Other gender choices are already selected; review manually before continuing')
+        targets = [n for n in rows if n.get('content-desc') in (gender + 'Selected', gender + 'Unselected')]
+        if len(targets) != 1:
+            raise RuntimeError('Requested gender row missing or ambiguous')
+        if not selected:
+            tap_label(serial, xml, gender)
+    else:
+        tap_resource(serial, xml, 'gender_female_selection_button' if gender == 'Woman' else 'gender_male_selection_button')
     current = read_ui(serial)
     if classify(current) != 'gender':
         print('Screen changed after gender choice; inspect before taking further action.', flush=True)
         return
+    if modern:
+        selected = [n.get('content-desc') for n in ET.fromstring(current).iter('node')
+                    if n.get('resource-id') == PACKAGE + ':id/parentGenderContainer'
+                    and n.get('content-desc', '').endswith('Selected')]
+        if selected != [gender + 'Selected']:
+            raise RuntimeError('Gender selection read-back did not match; Next not tapped')
     boxes = [n for n in ET.fromstring(current).iter('node')
-             if n.get('resource-id') == PACKAGE + ':id/show_gender_on_profile_checkbox']
+             if n.get('resource-id') == PACKAGE + ':id/' + checkbox_id]
     if len(boxes) != 1 or boxes[0].get('checked') not in ('true', 'false'):
         raise RuntimeError('Gender visibility state unavailable')
     if (boxes[0].get('checked') == 'true') != show_on_profile:
-        tap_resource(serial, current, 'show_gender_on_profile_checkbox')
+        tap_resource(serial, current, checkbox_id)
         current = read_ui(serial)
     boxes = [n for n in ET.fromstring(current).iter('node')
-             if n.get('resource-id') == PACKAGE + ':id/show_gender_on_profile_checkbox']
+             if n.get('resource-id') == PACKAGE + ':id/' + checkbox_id]
     if classify(current) != 'gender' or len(boxes) != 1 or boxes[0].get('checked') != str(show_on_profile).lower():
         raise RuntimeError('Gender visibility read-back did not match; Next not tapped')
     tap_resource(serial, current, 'text_button')
@@ -555,6 +735,39 @@ def enter_first_name(serial, name):
     print('User-supplied first name verified and Next tapped; value not saved.', flush=True)
 
 
+def use_google_for_email(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'email-entry':
+        raise RuntimeError('Expected Tinder email collection screen')
+    point = button_center(xml, 'Sign in with Google')
+    if not point:
+        raise RuntimeError('Google email sign-in control missing or ambiguous')
+    adb_call(serial, 'shell', 'input', 'tap', *map(str, point))
+    print('Opened explicitly authorized Google email sign-in.', flush=True)
+
+
+def choose_single_google_account(serial):
+    xml = read_ui(serial)
+    if classify(xml) != 'google-account-choice':
+        raise RuntimeError('Expected Google account chooser for Tinder')
+    tree = ET.fromstring(xml)
+    accounts = [n for n in tree.iter('node')
+                if n.get('package') == 'com.google.android.gms'
+                and n.get('resource-id') == 'com.google.android.gms:id/account_name']
+    if len(accounts) != 1:
+        raise RuntimeError('Choose your Google account manually on the device, then rerun; no account selected')
+    parents = {child: parent for parent in tree.iter() for child in parent}
+    target = accounts[0]
+    while target.get('clickable') != 'true' and target in parents:
+        target = parents[target]
+    bounds = re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', target.get('bounds', ''))
+    if target.get('clickable') != 'true' or target.get('enabled') != 'true' or not bounds:
+        raise RuntimeError('Google account row is not unambiguously actionable')
+    l, top, r, bottom = map(int, bounds.groups())
+    adb_call(serial, 'shell', 'input', 'tap', str((l+r)//2), str((top+bottom)//2))
+    print('Selected the single signed-in Google account for Tinder; account details not saved.', flush=True)
+
+
 def enter_phone(serial, provider, submit=False):
     xml = read_ui(serial)
     if classify(xml) != 'phone-entry':
@@ -562,9 +775,13 @@ def enter_phone(serial, provider, submit=False):
     nodes = list(ET.fromstring(xml).iter('node'))
     if not any(n.get('text') == 'US +1' for n in nodes):
         raise RuntimeError('Country selection is not the observed US +1; choose it manually')
-    number = re.sub(r'[ ()-]', '', provider.phone_number())
-    if not re.fullmatch(r'\+1\d{10}', number):
-        raise RuntimeError('This observed screen requires a US +1 phone number')
+    number = re.sub(r'[ ()-]', '', provider.phone_number().strip())
+    if re.fullmatch(r'[0-9]{10}', number):
+        number = '+1' + number
+    elif re.fullmatch(r'1[0-9]{10}', number):
+        number = '+' + number
+    if not re.fullmatch(r'\+1[0-9]{10}', number):
+        raise RuntimeError('Enter a 10-digit US phone number, optionally prefixed with 1 or +1')
     fields = [n for n in nodes if n.get('resource-id') == PACKAGE + ':id/phoneNumberInputView']
     if len(fields) != 1:
         raise RuntimeError('Phone field is missing or ambiguous')
@@ -646,11 +863,36 @@ def classify(xml):
                    if n.get('package') in ('com.google.android.permissioncontroller',
                                           'com.android.permissioncontroller')}
     google = {n.get('text', '') for n in nodes if n.get('package') == 'com.google.android.gms'}
+    if any(marker in text.casefold() for text in google for marker in
+           ('verify it’s you', "verify it's you", '2-step verification', 'verify your identity',
+            'captcha', 'please solve this puzzle')):
+        return 'human-verification-manual-stop'
+    if {'Choose an account', 'to continue to Tinder'} <= google and any(
+            n.get('resource-id') == 'com.google.android.gms:id/account_name' for n in nodes):
+        return 'google-account-choice'
+    if {'Your email?', EMAIL_BODY, 'Sign in with Google'} <= tinder and any(
+            n.get('package') == PACKAGE and n.get('resource-id') == PACKAGE + ':id/collect_email_input_edit_text'
+            for n in nodes):
+        return 'email-entry'
     if {ACCURACY_MESSAGE, 'Wi‑Fi scanning', 'No thanks', 'Turn on'} <= google:
         return 'location-accuracy-prompt'
     if LOCATION_PERMISSION in permissions and 'While using the app' in permissions:
         return 'location-permission'
     descriptions = {n.get('content-desc', '') for n in nodes if n.get('package') == PACKAGE}
+    if {'This is awkward', CONNECTION_ERROR, 'Retry'} <= tinder and any(
+            n.get('resource-id') == PACKAGE + ':id/text_button' for n in nodes):
+        return 'connection-error'
+    if {'Oops', LOCATION_ACCESS_ERROR, 'TRY AGAIN'} <= tinder and any(
+            n.get('resource-id') == PACKAGE + ':id/tryAgainButton' for n in nodes):
+        return 'location-access-error'
+    if {'What’s your education level?', 'This will help improve your experience on Tinder.',
+        'Prefer Not to Say', 'Next'} <= tinder:
+        return 'education'
+    if {'Who are you interested in seeing?', 'Men', 'Women', 'Beyond Binary', 'Everyone', 'Next'} <= tinder:
+        required = {PACKAGE + ':id/' + rid for rid in
+                    ('men_selection', 'women_selection', 'beyond_binary_selection', 'everyone_selection')}
+        if required <= {n.get('resource-id') for n in nodes if n.get('package') == PACKAGE}:
+            return 'discovery-preference'
     if {'So, are you from around here?', LOCATION_BODY, 'Allow', 'How is my location used?'} <= tinder:
         return 'location-rationale'
     if {'Share more about yourself', BIO_BODY, 'About me', 'Select a prompt', 'Skip'} <= tinder:
@@ -667,10 +909,12 @@ def classify(xml):
     if {'Add your recent pics', PHOTOS_BODY, 'Next'} <= tinder and 'Add photo' in descriptions:
         if any(n.get('resource-id') == PACKAGE + ':id/onboardingPhotoTitle' for n in nodes):
             return 'photos-manual-stop'
-    if {'What are you into?', INTERESTS_BODY, 'Skip'} <= tinder:
-        if any(n.get('resource-id') == PACKAGE + ':id/title_textview' for n in nodes):
+    if {'What are you into?', 'Skip'} <= tinder:
+        if (any(n.get('resource-id') == PACKAGE + ':id/title_textview' for n in nodes)
+                and (INTERESTS_BODY in tinder or any(
+                    re.fullmatch(r'Next (?:[0-9]|10)/10', value) for value in tinder | descriptions))):
             return 'interests'
-    if PERSONALITY_QUESTIONS | {'What else makes you–you?', 'Skip'} <= tinder:
+    if (PERSONALITY_QUESTIONS - {'What is your education level?'}) | {'What else makes you–you?', 'Skip'} <= tinder:
         return 'personality'
     if LIFESTYLE_QUESTIONS | {'Do their habits match yours? You go first.', 'Skip'} <= tinder:
         return 'lifestyle'
@@ -685,6 +929,17 @@ def classify(xml):
         required = {PACKAGE + ':id/' + value for value in
                     ('onboarding_binary_gender_title', 'gender_female_selection_button',
                      'gender_male_selection_button', 'show_gender_on_profile_checkbox')}
+        if required <= {n.get('resource-id') for n in nodes if n.get('package') == PACKAGE}:
+            return 'gender'
+    if ({'What’s your sexual orientation?', 'Select all that describe you to reflect your identity.',
+         'Skip', 'Show sexual orientation on profile'} <= tinder
+            and any(n.get('resource-id') == PACKAGE + ':id/onboarding_skip_button'
+                    for n in nodes if n.get('package') == PACKAGE)):
+        return 'sexual-orientation'
+    if ({'What’s your gender?', 'Woman', 'Man', 'Beyond Binary', 'Next'} <= tinder
+            and 'Show gender on profile' in tinder | descriptions):
+        required = {PACKAGE + ':id/' + value for value in
+                    ('title', 'rvParentGenders', 'parentGenderContainer', 'show_my_orientation_checkbox')}
         if required <= {n.get('resource-id') for n in nodes if n.get('package') == PACKAGE}:
             return 'gender'
     if {'Your b-day?', 'Your profile shows your age, not your birth date.', 'Next'} <= tinder:
@@ -753,7 +1008,8 @@ def _save_snapshot(xml, state, output):
 
 def _selected_photo_count(xml):
     nodes = [n for n in ET.fromstring(xml).iter('node') if n.get('package') in MEDIA_PACKAGES]
-    orders = [n.get('text') for n in nodes if n.get('resource-id', '').endswith(':id/selected_order')]
+    orders = [n.get('text') for n in nodes
+              if n.get('resource-id', '').endswith(':id/selected_order') and n.get('text')]
     expected = [str(i) for i in range(1, len(orders) + 1)]
     if sorted(orders) != expected:
         raise RuntimeError('Photo picker has an unexpected partial selection; review it manually')
@@ -764,7 +1020,9 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
                accept_sms_terms=False, accept_house_rules=False, first_name=None,
                birth_date=None, gender=None, show_gender_on_profile=None,
                relationship_goal=None, photos=(), decline_notifications=False,
-               allow_location=False, max_steps=50, transition_delay=1.0):
+               allow_location=False, use_google_email=False, interested_in=None,
+               distance_preference='max', allow_location_accuracy=False,
+               max_steps=50, transition_delay=1.0):
     """Run only the recorded signup path, stopping at every human-verification boundary."""
     _validate_device(serial, avd)
     if not (accept_terms and accept_sms_terms and accept_house_rules):
@@ -777,6 +1035,9 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
     if len(photos) != 4:
         raise RuntimeError('Signup runner requires exactly four explicitly supplied photos')
 
+    location_retries = 0
+    connection_retries = 0
+    accuracy_declined = False
     for _ in range(max_steps):
         xml = read_ui(serial)
         state = classify(xml)
@@ -805,6 +1066,14 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
             enter_phone(serial, provider, submit=True)
         elif state == 'verification-code':
             enter_code(serial, provider)
+        elif state in {'email-entry', 'google-account-choice'}:
+            if not use_google_email:
+                print('STOP: Google email sign-in requires --use-google-email or manual completion.', flush=True)
+                return 2
+            if state == 'email-entry':
+                use_google_for_email(serial)
+            else:
+                choose_single_google_account(serial)
         elif state == 'house-rules':
             agree_house_rules(serial)
         elif state == 'first-name':
@@ -819,16 +1088,29 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
             enter_birth_date(serial, birth_date)
         elif state == 'gender':
             select_gender(serial, gender, show_gender_on_profile)
+        elif state == 'discovery-preference':
+            select_interested_in(serial, interested_in or {'Woman': 'Men', 'Man': 'Women'}[gender])
+        elif state == 'education':
+            decline_education_detail(serial)
         elif state == 'distance-preference':
-            continue_default_distance(serial)
+            if distance_preference == 'max':
+                continue_maximum_distance(serial)
+            elif distance_preference == 'default':
+                continue_default_distance(serial)
+            else:
+                raise RuntimeError('Unsupported distance preference')
         elif state == 'relationship-goals':
             select_relationship_goal(serial, relationship_goal)
         elif state in {'lifestyle', 'personality'}:
             select_random_single_choice_traits(serial, state)
         elif state == 'interests':
             select_random_interests(serial)
-        elif state in {'school', 'bio-and-prompt'}:
-            skip_optional(serial)
+        elif state in {'school', 'bio-and-prompt', 'sexual-orientation'}:
+            try:
+                skip_optional(serial)
+            except ScreenChanged:
+                print('Optional page transitioned; inspecting the next screen before acting.', flush=True)
+                continue
         elif state == 'photos-manual-stop':
             count = sum(n.get('package') == PACKAGE and n.get('content-desc') == 'Profile photo, added'
                         for n in ET.fromstring(xml).iter('node'))
@@ -857,7 +1139,23 @@ def run_signup(serial, avd, output, provider, *, accept_terms=False,
                 return 2
             allow_foreground_location(serial)
         elif state == 'location-accuracy-prompt':
-            decline_optional_wifi_scanning(serial)
+            if allow_location_accuracy:
+                allow_google_location_accuracy(serial)
+            else:
+                decline_optional_wifi_scanning(serial)
+                accuracy_declined = True
+        elif state == 'location-access-error':
+            if not allow_location or location_retries >= 1 or (accuracy_declined and not allow_location_accuracy):
+                print('STOP: Tinder requires location access/accuracy; review settings or authorize --allow-location-accuracy.', flush=True)
+                return 2
+            retry_location_access(serial)
+            location_retries += 1
+        elif state == 'connection-error':
+            if connection_retries >= 1:
+                print('STOP: Tinder connection error persisted after one retry.', flush=True)
+                return 2
+            retry_connection_error(serial)
+            connection_retries += 1
         else:
             raise RuntimeError(f'No signup runner action exists for observed state: {state}')
         if transition_delay:
@@ -882,6 +1180,8 @@ def observe(serial, avd, output, decline_notifications=False):
         print('Login choices: Google, Phone Number, Line, Email. Continue accepts Tinder terms; awaiting user choice and confirmation.')
     elif state == 'house-rules':
         print('House Rules require user confirmation; no agreement tapped.')
+    elif state in {'email-entry', 'google-account-choice'}:
+        print('Google email sign-in is available with --run-signup --use-google-email; no account selected by observer.')
     elif state == 'first-name':
         print('First name is public and cannot be changed later; awaiting user-provided name. No field filled.')
     elif state == 'birth-date':
@@ -933,8 +1233,16 @@ def main():
     parser.add_argument('--accept-terms', action='store_true', help='Authorize Continue with Phone Number and the displayed Tinder terms during --run-signup')
     parser.add_argument('--accept-sms-terms', action='store_true', help='Authorize phone Next and the displayed SMS terms during --run-signup')
     parser.add_argument('--accept-house-rules', action='store_true', help='Authorize the displayed House Rules during --run-signup')
+    parser.add_argument('--use-google-email', action='store_true',
+                        help='Use Google on the email screen and choose a single signed-in account; multiple accounts remain manual')
     parser.add_argument('--allow-location', action='store_true', help='Authorize foreground Tinder location during --run-signup; never enables device-wide Wi-Fi scanning')
+    parser.add_argument('--allow-location-accuracy', action='store_true',
+                        help='Separately authorize Google Location Accuracy and Wi-Fi scanning inside this emulator')
     parser.add_argument('--signup-gender', choices=('Woman', 'Man'), help='Explicit gender choice for --run-signup')
+    parser.add_argument('--signup-interested-in', choices=('Men', 'Women', 'Beyond Binary', 'Everyone'),
+                        help='Discovery preference; defaults to Men for Woman and Women for Man')
+    parser.add_argument('--signup-distance', choices=('max', 'default'), default='max',
+                        help='Use the maximum observed 100-mile distance by default; default keeps 50 miles')
     parser.add_argument('--signup-gender-visibility', choices=('show', 'hide'), help='Explicit gender visibility for --run-signup')
     parser.add_argument('--signup-relationship-goal', choices=sorted(RELATIONSHIP_GOALS), help='Explicit relationship goal for --run-signup')
     args = parser.parse_args()
@@ -967,6 +1275,10 @@ def main():
             photos=args.photo,
             decline_notifications=args.decline_notifications,
             allow_location=args.allow_location,
+            use_google_email=args.use_google_email,
+            interested_in=args.signup_interested_in,
+            distance_preference=args.signup_distance,
+            allow_location_accuracy=args.allow_location_accuracy,
         )
     mutations = (args.enter_phone, args.enter_code, args.agree_house_rules, args.enter_name,
                  args.start_profile, args.enter_birth_date, args.select_gender,

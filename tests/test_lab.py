@@ -27,6 +27,8 @@ class LabTests(unittest.TestCase):
         install = source.index('--sign-in --install-only')
         isolation = source.index('step "Configuring Magisk mount isolation for installed test apps"')
         second_runtime = source.index('    start_signal_runtime', isolation)
+        stop_controllers = source.index('    stop_runtime_controllers', isolation)
+        isolation_reboot = source.index('    adb -s "$SERIAL" reboot', isolation)
         checker = source.index('step "Checking app-visible signals on the new phone"')
         certificate = source.index('step "Certifying the full phone setup before app signup"')
         signup = source.index('step "Bumble signup"')
@@ -34,6 +36,8 @@ class LabTests(unittest.TestCase):
         self.assertLess(services, install)
         self.assertLess(install, isolation)
         self.assertLess(isolation, second_runtime)
+        self.assertLess(stop_controllers, isolation_reboot)
+        self.assertLess(isolation_reboot, second_runtime)
         self.assertLess(second_runtime, checker)
         self.assertLess(checker, certificate)
         self.assertLess(certificate, signup)
@@ -243,6 +247,37 @@ source "$SCRIPT_DIR/provision_file_profiles.sh"
                 self.assertEqual(result.returncode, 2)
                 self.assertEqual(existing.read_text(), 'keep me')
                 existing.unlink()
+
+    def test_bumble_install_opt_out_disables_install_and_signup_in_either_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, HOME=directory, ANDROID_AVD_HOME=directory + '/avds')
+            command = ['/bin/bash', str(ROOT / 'setup_galaxy_s25_avd.sh'),
+                       '--dry-run', '--yes', '--no-proxy']
+            for flag in ('--no-bumble-install', '--no-bumble'):
+                for options in ([flag], [flag, '--bumble-signup'], ['--bumble-signup', flag]):
+                    with self.subTest(options=options):
+                        output = subprocess.run(command + options, env=env, capture_output=True,
+                                                text=True, check=True).stdout
+                        self.assertIn('Bumble installation: Google Play skipped', output)
+                        self.assertIn('Bumble signup: 0', output)
+                        self.assertNotIn('Bumble profile name:', output)
+                        self.assertIn('Signup safeguard: required setup artifacts', output)
+            output = subprocess.run(command + ['--no-bumble-install', '--pof-signup'], env=env,
+                                    capture_output=True, text=True, check=True).stdout
+            self.assertIn('Bumble installation: Google Play skipped', output)
+            self.assertIn('POF flow: finish phone', output)
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    def test_reduced_device_only_build_does_not_claim_full_signup_certification(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(os.environ, HOME=directory, ANDROID_AVD_HOME=directory + '/avds')
+            command = ['/bin/bash', str(ROOT / 'setup_galaxy_s25_avd.sh'), '--dry-run',
+                       '--yes', '--no-proxy', '--no-apps', '--no-bumble-install']
+            full = subprocess.run(command, env=env, capture_output=True, text=True, check=True).stdout
+            self.assertIn('Signup safeguard: required setup artifacts', full)
+            reduced = subprocess.run(command + ['--no-checker'], env=env,
+                                     capture_output=True, text=True, check=True).stdout
+            self.assertNotIn('Signup safeguard:', reduced)
             backup = Path(directory) / 'galaxy_s25_avd_backups/Taken'
             backup.mkdir(parents=True)
             result = subprocess.run(command + ['--name', 'Taken'], env=env, capture_output=True)

@@ -352,7 +352,9 @@ ramdisk configuration. Do not rerun device creation with the same AVD name.
 File validation does not check codec compatibility; inspect the preview in the
 Android Camera app before opening verification.
 
-Use `--no-bumble-signup` to omit this step. `--non-interactive` creates the
+Use `--no-bumble-install` (or `--no-bumble`) to skip both installing Bumble and
+its signup. `--no-bumble-signup` skips signup only and still installs Bumble by
+default. `--non-interactive` creates the
 phone and prints a command to run signup later; `--yes` still permits the
 credential wizard when a terminal is attached. `--no-apps` or a custom app list
 without Bumble skips signup if Bumble is absent. Resume on an existing phone:

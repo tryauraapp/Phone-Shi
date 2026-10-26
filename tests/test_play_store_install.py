@@ -14,6 +14,29 @@ def listing(label, enabled='true'):
 
 
 class PlayStoreTests(unittest.TestCase):
+    def test_crash_after_install_request_reopens_and_retries_install(self):
+        home = '<hierarchy><node package="com.android.launcher3"/></hierarchy>'
+        commands = []
+        checks = iter(['', '', '', 'package:com.bumble.app'])
+
+        def run(command, **kwargs):
+            commands.append(command)
+            args = command[3:]
+            output = ''
+            if args[:4] == ['shell', 'pm', 'list', 'packages']:
+                output = ('package:com.bumble.app installer=com.android.vending'
+                          if '-i' in args else next(checks))
+            return subprocess.CompletedProcess(command, 0, output, '')
+
+        with patch('sys.argv', ['play_store_install.py', '--serial', 'test', '--install-only']), \
+                patch.object(store.subprocess, 'run', side_effect=run), \
+                patch.object(store, 'read_ui', side_effect=[listing('Install'), home, listing('Install'), listing('Open')]), \
+                patch.object(store.time, 'sleep'):
+            self.assertEqual(store.main(), 0)
+        self.assertEqual(sum('market://details?id=com.bumble.app' in c for c in commands), 2)
+        self.assertEqual(sum(c[3:6] == ['shell', 'input', 'tap'] for c in commands), 2)
+        self.assertIn(['adb', '-s', 'test', 'shell', 'am', 'force-stop', 'com.bumble.app'], commands)
+
     def test_pof_targets_official_package(self):
         commands = []
 

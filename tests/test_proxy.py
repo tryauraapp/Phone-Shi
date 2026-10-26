@@ -12,6 +12,35 @@ import emulator_proxy as proxy
 
 
 class ProxyTests(unittest.TestCase):
+    def test_adb_failure_prevents_emulator_launch(self):
+        with patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--no-proxy']), \
+             patch.object(proxy, 'identifier_options', return_value=[]), \
+             patch.object(proxy, 'ensure_adb_server', side_effect=subprocess.TimeoutExpired('adb', 20)), \
+             patch.object(proxy, 'launch', new_callable=AsyncMock) as launch:
+            with self.assertRaises(SystemExit) as result:
+                proxy.main()
+            self.assertEqual(result.exception.code, 2)
+            launch.assert_not_called()
+
+    def test_adb_ready_before_emulator_launch(self):
+        events = []
+        async def launch(*args):
+            events.append('emulator')
+            return 0
+        with patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--no-proxy']), \
+             patch.object(proxy, 'identifier_options', return_value=[]), \
+             patch.object(proxy, 'ensure_adb_server', side_effect=lambda *args: events.append('adb')), \
+             patch.object(proxy, 'launch', side_effect=launch):
+            proxy.main()
+        self.assertEqual(events, ['adb', 'emulator'])
+
+    def test_adb_uses_selected_sdk_and_environment(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(proxy.subprocess, 'run') as run:
+            env = {'ANDROID_USER_HOME': directory, 'ANDROID_ADB_SERVER_PORT': '5038'}
+            proxy.ensure_adb_server(Path('/sdk'), env)
+            run.assert_called_once_with(['/sdk/platform-tools/adb', 'start-server'],
+                                        env=env, check=True, timeout=20)
+
     def test_launch_refreshes_private_ramdisk_after_root_patch(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -25,6 +54,7 @@ class ProxyTests(unittest.TestCase):
                 avd='Test', private_emulator=str(private), serial='S25TEST')))
             with patch.dict(os.environ, {'ANDROID_AVD_HOME': directory}), \
                  patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--no-proxy']), \
+                 patch.object(proxy, 'ensure_adb_server'), \
                  patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:
                 for contents in (b'stock ramdisk', b'rootAVD patched ramdisk'):
                     (avd / 'ramdisk.img').write_bytes(contents)
@@ -82,7 +112,7 @@ class ProxyTests(unittest.TestCase):
 
     def test_launch_passes_explicit_host_proxy_without_proxying_control_services(self):
         with patch('sys.argv', ['emulator_proxy.py', '--avd', 'Test', '--proxy',
-                                '192.0.2.1:8080:user:password']), patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:
+                                '192.0.2.1:8080:user:password']), patch.object(proxy, 'ensure_adb_server'), patch.object(proxy, 'launch', new_callable=AsyncMock, return_value=0) as launch:
             proxy.main()
         command, env, upstream, diagnostic = launch.call_args.args
         self.assertEqual(upstream, 'http://user:password@192.0.2.1:8080')

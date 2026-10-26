@@ -30,6 +30,7 @@
 #    --no-apps  skip extra apps and the Google Play dating-app installation
 #    --no-play-store  skip Google Play installation only
 #    --no-bumble-signup  skip the final interactive Bumble signup step
+#    --no-bumble-install / --no-bumble  skip Bumble installation and signup
 #    --bumble-signup  enable the final signup step (default)
 #    --pof-signup  install POF and enable its guarded capture/resume step
 #    --no-pof-signup  skip the POF capture/resume step
@@ -70,6 +71,7 @@ YES=0
 APPS=()
 NO_APPS=0
 PLAY_STORE_BUMBLE=1
+BUMBLE_DISABLED=0
 PLAY_STORE_POF=0
 PLAY_STORE_DISABLED=0
 FINGERPRINT=
@@ -99,7 +101,9 @@ LOCATION_LATITUDE=40.7357
 LOCATION_LONGITUDE=-74.1724
 LOCATION_TIMEZONE=America/New_York
 LOCATION_LABEL='Newark, New Jersey'
-ROOT_PACKAGES=(com.bumble.app dev.emulab.devicecheck)
+# Optional diagnostic apps must use the same mount isolation as the local checker.
+# The configuration loop skips packages that are not installed.
+ROOT_PACKAGES=(com.bumble.app com.tinder com.pof.android dev.emulab.devicecheck com.eltavine.duckdetector)
 NETWORK_PROFILE_INSTALLED=0
 
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
@@ -125,12 +129,13 @@ while (($#)); do
     --no-apps) NO_APPS=1 ;;
     --no-play-store) PLAY_STORE_DISABLED=1; PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0 ;;
     --no-bumble-signup) BUMBLE_SIGNUP=0 ;;
+    --no-bumble-install | --no-bumble) BUMBLE_DISABLED=1; PLAY_STORE_BUMBLE=0; BUMBLE_SIGNUP=0 ;;
     --bumble-signup)
       BUMBLE_SIGNUP=1; POF_SIGNUP=0
       if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_BUMBLE=1; PLAY_STORE_POF=0; fi
       ;;
     --pof-signup)
-      POF_SIGNUP=1; BUMBLE_SIGNUP=0; ROOT_PACKAGES+=(com.pof.android)
+      POF_SIGNUP=1; BUMBLE_SIGNUP=0
       if ((!PLAY_STORE_DISABLED)); then PLAY_STORE_POF=1; PLAY_STORE_BUMBLE=0; fi
       ;;
     --no-pof-signup) POF_SIGNUP=0 ;;
@@ -165,9 +170,16 @@ while (($#)); do
   shift
 done
 
+# An explicit installation opt-out takes precedence over signup defaults in
+# either argument order, and must apply before profile prompts are considered.
+if ((BUMBLE_DISABLED)); then PLAY_STORE_BUMBLE=0; BUMBLE_SIGNUP=0; fi
 source "$SCRIPT_DIR/setup_options.sh" || exit 1
 configure_setup || exit 2
 if ((NO_APPS)); then PLAY_STORE_BUMBLE=0; PLAY_STORE_POF=0; fi
+# A complete device-only build must also be usable for signup installed later.
+# Deliberately reduced fixture builds remain uncertified unless signup requests
+# the existing fail-closed validation explicitly.
+CERTIFY_SETUP=$((BUMBLE_SIGNUP || POF_SIGNUP || (CHECKER && ROOT_ISOLATION && BATTERY_SIM && SIGNAL_SIM && QEMU_PROFILE && SENSOR_LABELS && FILE_ALIASES && GRAPHICS_LABELS)))
 WORK="$HOME/galaxy_s25_avd_backups/$NAME/setup"
 if [[ -z "$NODEMAVEN_KEY_FILE" ]]; then
   NODEMAVEN_KEY_FILE="$SCRIPT_DIR/.local/nodemaven-api-key"
@@ -227,7 +239,7 @@ if ((DRY_RUN)); then
     printf 'Bumble profile name: %s\nBumble profile gender: %s\nBumble photos: 4 random images from the supplied photo pool (video excluded)\nPhone number: requested only at Bumble phone entry\n' "${BUMBLE_PROFILE_NAME:-ask at signup}" "${BUMBLE_PROFILE_GENDER:-ask at signup}"
   fi
   printf 'POF guarded signup capture: %s (permissions only; profile, terms, SMS and photos pause)\n' "$POF_SIGNUP"
-  if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
+  if ((CERTIFY_SETUP)); then
     printf 'Signup safeguard: required setup artifacts, checker result and live phone state must certify first\n'
   fi
   exit 0
@@ -249,7 +261,7 @@ else
   B= DIM= RED= GRN= YEL= BLU= MAG= CYN= X=
 fi
 STEP=0
-STEPS=$((17 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + BATTERY_SIM + 2*SIGNAL_SIM + ROOT_ISOLATION + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + (BUMBLE_SIGNUP || POF_SIGNUP) + BUMBLE_SIGNUP + POF_SIGNUP + ROOT_ISOLATION*(2 + SIGNAL_SIM)))
+STEPS=$((17 + (${#APPS[@]} > 0) + PLAY_STORE_BUMBLE + PLAY_STORE_POF + BATTERY_SIM + 2*SIGNAL_SIM + ROOT_ISOLATION + QEMU_PROFILE + SENSOR_LABELS + FILE_ALIASES + GRAPHICS_LABELS + 2*CHECKER + (ROOT_ISOLATION && !KEEP_MAGISK_APP) + CERTIFY_SETUP + BUMBLE_SIGNUP + POF_SIGNUP + ROOT_ISOLATION*(2 + SIGNAL_SIM)))
 log()  { printf '%s %s\n' "$(date '+%H:%M:%S')" "$*" >>"$LOG"; }
 step() { STEP=$((STEP+1)); printf '\n %s[%d/%d]%s %s%s%s\n' "$CYN" "$STEP" "$STEPS" "$X" "$B" "$*" "$X"; log "== $*"; }
 info() { printf '   %s›%s %s\n' "$CYN" "$X" "$*"; log "info: $*"; }
@@ -322,7 +334,13 @@ verify_cpu_architecture() {
 }
 
 ensure_cellular_network() {
-  python3 "$SCRIPT_DIR/setup_network.py" --serial "$SERIAL" >>"$LOG" 2>&1 || die "LTE cellular data is not validated; see $LOG."
+  local network_args=(--serial "$SERIAL")
+  if [[ "${FIRST_BOOT_NETWORK_RECOVERY:-0}" == 1 ]]; then
+    network_args+=(--recover-first-boot --avd "$NAME")
+  elif [[ "${1:-}" == recover-radio ]]; then
+    network_args+=(--recover-radio --avd "$NAME")
+  fi
+  python3 "$SCRIPT_DIR/setup_network.py" "${network_args[@]}" >>"$LOG" 2>&1 || die "LTE cellular data is not validated; see $LOG."
   if ((NETWORK_PROFILE_INSTALLED)); then
     dsu 'sh /data/adb/service.d/96-s25-network.sh' >>"$LOG" 2>&1 || die "LTE network boot service failed."
   fi
@@ -400,7 +418,7 @@ if [[ "$FRONT_CAMERA" == webcam* ]]; then
 fi
 command -v python3 >/dev/null || die "python3 is required for app bundles and per-device profiles."
 [[ -x "$LAB" ]] || die "galaxy_s25_avd_lab.sh must sit next to this script ($SCRIPT_DIR)."
-for f in setup_su.py setup_magisk.py setup_ui.py phone_setup_guard.py generate_lab_profile.py device_battery_service.sh device_root_isolation.sh emulator_signal_sim.py device_qemu_profile.sh patch_sensor_labels.py build_file_aliases.py device_prepare_file_aliases.sh device_file_aliases.sh provision_file_profiles.sh; do
+for f in setup_su.py setup_magisk.py setup_ui.py phone_setup_guard.py generate_lab_profile.py device_battery_service.sh device_root_isolation.sh emulator_signal_sim.py controller_lifecycle.py device_qemu_profile.sh patch_sensor_labels.py build_file_aliases.py device_prepare_file_aliases.sh device_file_aliases.sh provision_file_profiles.sh; do
   [[ -f "$SCRIPT_DIR/$f" ]] || die "Missing helper $SCRIPT_DIR/$f"
 done
 (( !BUMBLE_SIGNUP )) || [[ -f "$SCRIPT_DIR/bumble_signup.py" ]] || die 'Missing bumble_signup.py helper.'
@@ -565,7 +583,7 @@ ok "AVD created at $AVD_DIR (fast boot off: every launch is a cold boot so Magis
 
 # ── 2. First boot (stock) ───────────────────────────────────────────────────
 step "First boot with the private stock ramdisk"
-launch
+FIRST_BOOT_NETWORK_RECOVERY=1 launch
 python3 -I "$SCRIPT_DIR/device_identifiers.py" --avd-dir "$AVD_DIR" --initialize-serial "$SERIAL" --adb "$SDK/platform-tools/adb" >>"$LOG" 2>&1 || die "Could not initialize Android ID and per-device settings."
 rd=$(sed -n 's/^disk\.ramdisk\.path *= *//p' "$AVD_DIR/hardware-qemu.ini" 2>/dev/null)
 canon() { (cd "$(dirname "$1")" 2>/dev/null && echo "$(pwd -P)/$(basename "$1")"); }
@@ -798,14 +816,13 @@ verify_runtime_services() {
   ok "Runtime services match this phone: battery, signal and proxy-derived GPS"
 }
 
-wait_host_controller_exit() {
-  local pid=${1:-} label=${2:-controller} i
-  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
-  for i in {1..30}; do
-    kill -0 "$pid" 2>/dev/null || return 0
-    sleep 1
-  done
-  die "$label did not stop across the isolation reboot."
+stop_runtime_controllers() {
+  if ((SIGNAL_SIM)); then
+    python3 -I "$SCRIPT_DIR/controller_lifecycle.py" --avd "$NAME" --work "$WORK" --kind signal >>"$LOG" 2>&1 ||
+      die "Could not stop this phone's signal controller before reboot; see $LOG."
+  fi
+  python3 -I "$SCRIPT_DIR/controller_lifecycle.py" --avd "$NAME" --work "$WORK" --kind location >>"$LOG" 2>&1 ||
+    die "Could not stop this phone's GPS controller before reboot; see $LOG."
 }
 
 if ((BATTERY_SIM)); then
@@ -960,23 +977,12 @@ if ((ROOT_ISOLATION)); then
   adb -s "$SERIAL" shell rm -f /data/local/tmp/s25-root-isolation.sh >>"$LOG" 2>&1
   if ((isolated_packages)); then
     info "Rebooting to activate Zygisk and app mount isolation"
-    old_signal_pid=$(python3 -I - "$WORK/profile/radio-state.json" <<'PY' 2>/dev/null || true
-import json, sys
-print(json.load(open(sys.argv[1])).get('pid', ''))
-PY
-)
-    old_location_pid=$(python3 -I - "$WORK/location/location-state.json" <<'PY' 2>/dev/null || true
-import json, sys
-print(json.load(open(sys.argv[1])).get('pid', ''))
-PY
-)
+    stop_runtime_controllers
     OLD_BOOT=$(boot_id)
     adb -s "$SERIAL" reboot >>"$LOG" 2>&1 || die "Isolation activation reboot failed."
     spin_wait "Activating root isolation" 360 new_boot || die "Android did not finish the isolation activation reboot."
-    wait_host_controller_exit "$old_signal_pid" "Signal controller"
-    wait_host_controller_exit "$old_location_pid" "GPS controller"
     verify_cpu_architecture
-    ensure_cellular_network
+    ensure_cellular_network recover-radio
     set_location
     verify_identifiers
     su_works || die "Shell root was not retained after activating isolation."
@@ -1046,15 +1052,14 @@ PY
   fi
 fi
 
-if ((BUMBLE_SIGNUP || POF_SIGNUP)); then
+if ((CERTIFY_SETUP)); then
   step "Certifying the full phone setup before app signup"
-  GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK")
+  GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK"
+              --package com.bumble.app --package com.tinder --package com.pof.android)
   if ((BUMBLE_SIGNUP)); then
-    GUARD_ARGS+=(--package com.bumble.app)
     adb -s "$SERIAL" shell am force-stop com.bumble.app >>"$LOG" 2>&1
   fi
   if ((POF_SIGNUP)); then
-    GUARD_ARGS+=(--package com.pof.android)
     adb -s "$SERIAL" shell am force-stop com.pof.android >>"$LOG" 2>&1
   fi
   python3 "$SCRIPT_DIR/phone_setup_guard.py" "${GUARD_ARGS[@]}" >>"$LOG" 2>&1 ||

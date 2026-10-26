@@ -51,11 +51,91 @@ def ensure_network(serial, timeout=60, call=adb_call, now=time.monotonic, pause=
     raise RuntimeError('Android has no validated LTE cellular data connection. Wi-Fi fallback is disabled.')
 
 
+def ensure_first_boot_network(serial, avd, timeout=60, boot_timeout=360,
+                              call=adb_call, now=time.monotonic, pause=time.sleep):
+    """Retry a fresh phone once after reboot if first-boot SIM setup stalls."""
+    def verify_avd():
+        if call(serial, 'emu', 'avd', 'name').splitlines()[0].strip() != avd:
+            raise RuntimeError('Network recovery AVD does not match the selected phone')
+
+    verify_avd()
+    try:
+        ensure_network(serial, timeout, call, now, pause)
+        return
+    except RuntimeError:
+        # Preserve the failure in the setup log without dumping SIM identifiers.
+        dump = call(serial, 'shell', 'dumpsys', 'connectivity')
+        default = re.search(r'^Active default network: (.*)$', dump, re.MULTILINE)
+        print('First-boot LTE check failed; active default network: '
+              + (default.group(1) if default else 'unavailable'), flush=True)
+    verify_avd()
+    old_boot = call(serial, 'shell', 'cat', '/proc/sys/kernel/random/boot_id').strip()
+    if not old_boot:
+        raise RuntimeError('Cannot confirm boot identity before network recovery')
+    print('Rebooting this new phone once to retry SIM/carrier initialization.', flush=True)
+    call(serial, 'reboot')
+    deadline = now() + boot_timeout
+    reconnect_at = now() + 20
+    while now() < deadline:
+        try:
+            boot = call(serial, 'shell', 'cat', '/proc/sys/kernel/random/boot_id').strip()
+            if boot and boot != old_boot and call(serial, 'shell', 'getprop', 'sys.boot_completed').strip() == '1':
+                break
+        except subprocess.SubprocessError:
+            # Only reconnect the selected transport, never restart the shared adb server.
+            if now() >= reconnect_at:
+                try:
+                    call(serial, 'reconnect')
+                except subprocess.SubprocessError:
+                    pass
+                reconnect_at = now() + 20
+        pause(2)
+    else:
+        raise RuntimeError('First-boot network recovery reboot did not finish; phone data is retained')
+    verify_avd()
+    ensure_network(serial, timeout, call, now, pause)
+
+
+def ensure_isolation_network(serial, avd, timeout=60, call=adb_call,
+                             now=time.monotonic, pause=time.sleep):
+    """Recover the observed radio callback failure after the isolation reboot."""
+    def verify_avd():
+        if call(serial, 'emu', 'avd', 'name').splitlines()[0].strip() != avd:
+            raise RuntimeError('Radio recovery AVD does not match the selected phone')
+
+    verify_avd()
+    try:
+        ensure_network(serial, timeout, call, now, pause)
+        return
+    except RuntimeError:
+        # This is a missing HAL callback, not a slow download or a proxy error.
+        # Only apply the restart when the SIM is not loaded and the radio log
+        # contains the failure observed on this emulator image.
+        sim = call(serial, 'shell', 'getprop', 'gsm.sim.state').strip()
+        radio = call(serial, 'shell', 'su', '-c', 'logcat -b radio -d -t 200')
+        if sim == 'LOADED' or 'mRadioIndication == NULL' not in radio:
+            raise
+    verify_avd()
+    print('Radio callbacks are missing after isolation; restarting vendor.ril-daemon once.', flush=True)
+    call(serial, 'shell', 'su', '-c', 'setprop ctl.restart vendor.ril-daemon')
+    ensure_network(serial, timeout, call, now, pause)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serial', required=True)
+    recovery = parser.add_mutually_exclusive_group()
+    recovery.add_argument('--recover-first-boot', action='store_true')
+    recovery.add_argument('--recover-radio', action='store_true')
+    parser.add_argument('--avd', help='Required identity check before first-boot recovery')
     args = parser.parse_args()
-    ensure_network(args.serial)
+    if args.recover_first_boot or args.recover_radio:
+        if not args.avd:
+            parser.error('Network recovery requires --avd')
+        recover = ensure_first_boot_network if args.recover_first_boot else ensure_isolation_network
+        recover(args.serial, args.avd)
+    else:
+        ensure_network(args.serial)
 
 
 if __name__ == '__main__':

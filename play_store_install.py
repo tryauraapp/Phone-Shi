@@ -7,7 +7,7 @@ import time
 import xml.etree.ElementTree as ET
 
 from setup_ui import read_ui
-from google_play_signin import ensure_sign_in, play_screen_action
+from google_play_signin import PlayStoreRecovery, ensure_sign_in, play_screen_action
 
 PACKAGE = 'com.bumble.app'
 APPS = {
@@ -63,17 +63,28 @@ def main():
         raise RuntimeError('Connected AVD does not match --avd')
     call('shell', 'am', 'start', '-a', 'android.intent.action.VIEW',
          '-d', f'market://details?id={package}', '-p', 'com.android.vending')
+    recovery = PlayStoreRecovery(call, package)
     if args.sign_in:
-        ensure_sign_in(args.serial, button_center, package=package, listing_marker=listing_marker)
+        ensure_sign_in(args.serial, button_center, package=package, listing_marker=listing_marker,
+                       recovery=recovery)
     deadline = time.monotonic() + args.timeout
     requested = False
     last_status = None
     while time.monotonic() < deadline:
         installed = any(line.strip() == f'package:{package}' for line in
                         call('shell', 'pm', 'list', 'packages', package).splitlines())
-        xml = read_ui(args.serial)
+        try:
+            xml = read_ui(args.serial)
+        except subprocess.SubprocessError:
+            if recovery.recover(None):
+                requested = False
+                continue
+            raise
         if not xml:
             time.sleep(2)
+            continue
+        if recovery.recover(xml):
+            requested = False
             continue
         screen = play_screen_action(xml)
         if screen == 'agreement':
@@ -116,7 +127,7 @@ def main():
         if listing_marker not in xml:
             if args.sign_in:
                 ensure_sign_in(args.serial, button_center, package=package,
-                               listing_marker=listing_marker)
+                               listing_marker=listing_marker, recovery=recovery)
                 deadline = time.monotonic() + args.timeout
                 continue
             raise RuntimeError(f'{title} listing is not visible; finish Play Store sign-in or prompts manually')

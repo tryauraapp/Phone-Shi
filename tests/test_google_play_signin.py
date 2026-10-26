@@ -19,6 +19,124 @@ def account_screen(password=False, heading='Sign in - Google Accounts', forgot=T
 
 
 class GooglePlaySignInTests(unittest.TestCase):
+    def test_crash_during_signin_reopens_listing(self):
+        home = '<hierarchy><node package="com.google.android.apps.nexuslauncher" text="Home"/></hierarchy>'
+        done = '<hierarchy><node text="Tinder"/></hierarchy>'
+        with patch.object(google, 'read_ui', side_effect=[home, done]), \
+                patch.object(google.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')) as run, \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center, package='com.tinder', listing_marker='Tinder')
+        self.assertEqual(run.call_count, 1)
+        self.assertIn('market://details?id=com.tinder', run.call_args.args[0])
+
+    def test_crash_dialog_closes_only_play_store_before_reopening(self):
+        xml = ('<hierarchy><node package="android" text="Google Play Store keeps stopping"/>'
+               '<node package="android" resource-id="android:id/aerr_close" '
+               'enabled="true" bounds="[0,0][100,100]"/></hierarchy>')
+        calls = []
+        recovery = google.PlayStoreRecovery(lambda *args: calls.append(args), 'com.tinder')
+        with patch.object(google.time, 'sleep'):
+            self.assertTrue(recovery.recover(xml))
+        self.assertEqual(calls[0], ('shell', 'input', 'tap', '50', '50'))
+        self.assertIn('market://details?id=com.tinder', calls[1])
+        calls.clear()
+        self.assertFalse(recovery.recover(xml.replace('Google Play Store', 'Other app')))
+        self.assertEqual(calls, [])
+
+    def test_recovery_does_not_interrupt_google_security_screen(self):
+        xml = ('<hierarchy><node package="com.google.android.gms" text="Verify it’s you"/>'
+               '<node package="com.google.android.apps.nexuslauncher" text="Home"/></hierarchy>')
+        calls = []
+        recovery = google.PlayStoreRecovery(lambda *args: calls.append(args), 'com.tinder')
+        self.assertFalse(recovery.recover(xml))
+        self.assertEqual(calls, [])
+
+    def test_repeated_crashes_stop_after_three_reopens(self):
+        home = '<hierarchy><node package="com.android.launcher3"/></hierarchy>'
+        calls = []
+        recovery = google.PlayStoreRecovery(lambda *args: calls.append(args), 'com.tinder')
+        with patch.object(google.time, 'sleep'):
+            for _ in range(3):
+                self.assertTrue(recovery.recover(home))
+            with self.assertRaisesRegex(RuntimeError, 'three reopen attempts'):
+                recovery.recover(home)
+        self.assertEqual(len(calls), 3)
+
+    def test_failed_ui_dump_recovers_only_when_launcher_is_resumed(self):
+        done = '<hierarchy><node text="Bumble Dating App"/></hierarchy>'
+        with patch.object(google, 'read_ui', side_effect=[subprocess.CalledProcessError(1, 'adb'), done]), \
+                patch.object(google.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                    [], 0, 'topResumedActivity: com.android.launcher3/.Launcher', '')) as run, \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center)
+        self.assertEqual(run.call_count, 2)
+
+    def test_play_signin_landing_with_alternate_copy_is_recognized(self):
+        xml = ('<hierarchy><node package="com.android.vending" text="Google Play"/>'
+               '<node package="com.android.vending" text="Sign in"/></hierarchy>')
+        self.assertEqual(google.sign_in_action(xml), 'start')
+
+    def test_signin_bounce_retries_then_reaches_requested_listing(self):
+        start = ('<hierarchy><node text="Sign in to find the latest Android apps"/>'
+                 '<node text="Sign in" clickable="true" enabled="true" bounds="[0,0][100,100]"/></hierarchy>')
+        done = '<hierarchy><node text="Tinder"/></hierarchy>'
+        with patch.object(google.sys.stdin, 'isatty', return_value=False), \
+                patch.object(google, 'read_ui', side_effect=[start, '<hierarchy/>', start, done]), \
+                patch.object(google.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')) as run, \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center, package='com.tinder', listing_marker='Tinder')
+        self.assertEqual(run.call_count, 2)
+        self.assertTrue(all(call.args[0][-3:] == ['tap', '50', '50'] for call in run.call_args_list))
+
+    def test_persistent_signin_bounce_stops_after_three_taps(self):
+        start = ('<hierarchy><node text="Sign in to find the latest Android apps"/>'
+                 '<node text="Sign in" clickable="true" enabled="true" bounds="[0,0][100,100]"/></hierarchy>')
+        with patch.object(google, 'read_ui', return_value=start), \
+                patch.object(google.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')) as run, \
+                patch.object(google.time, 'sleep'):
+            with self.assertRaisesRegex(RuntimeError, 'three attempts'):
+                google.ensure_sign_in('test', button_center)
+        self.assertEqual(run.call_count, 3)
+
+    def test_already_signed_in_does_not_require_terminal(self):
+        home = ('<hierarchy><node package="com.android.vending" '
+                'content-desc="Signed in as Test test@example.invalid Account and settings."/></hierarchy>')
+        done = '<hierarchy><node text="Bumble Dating App"/></hierarchy>'
+        with patch.object(google.sys.stdin, 'isatty', return_value=False), \
+                patch.object(google, 'read_ui', side_effect=[home, done]), \
+                patch.object(google.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')) as run, \
+                patch.object(google.getpass, 'getpass') as prompt, \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center)
+        prompt.assert_not_called()
+        self.assertIn('market://details?id=com.bumble.app', run.call_args.args[0])
+
+    def test_credentials_still_require_terminal(self):
+        with patch.object(google.sys.stdin, 'isatty', return_value=False), \
+                patch.object(google, 'read_ui', return_value=account_screen()), \
+                patch.object(google.getpass, 'getpass') as prompt:
+            with self.assertRaisesRegex(RuntimeError, 'interactive terminal'):
+                google.ensure_sign_in('test', button_center)
+        prompt.assert_not_called()
+
+    def test_return_to_landing_allows_credentials_on_new_attempt(self):
+        start = ('<hierarchy><node text="Sign in to find the latest Android apps"/>'
+                 '<node text="Sign in" clickable="true" enabled="true" bounds="[0,0][100,100]"/></hierarchy>')
+        email = account_screen()
+        done = '<hierarchy><node text="Bumble Dating App"/></hierarchy>'
+        with patch.object(google.sys.stdin, 'isatty', return_value=True), \
+                patch.object(google.getpass, 'getpass', return_value='test@example.invalid') as prompt, \
+                patch.object(google, 'read_ui', side_effect=[start, email, email, start, email, email, done]), \
+                patch.object(google.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')), \
+                patch.object(google.time, 'sleep'):
+            google.ensure_sign_in('test', button_center)
+        self.assertEqual(prompt.call_count, 2)
+
     def test_account_protection_puzzle_requires_manual_completion(self):
         xml = '<hierarchy><node text="Protecting your account"/><node text="Please solve this puzzle so we know you are a real person"/><node text="Start Puzzle"/></hierarchy>'
         self.assertEqual(google.sign_in_action(xml), 'captcha')

@@ -55,5 +55,10 @@ if [ -f "$D/renderer.enabled" ]; then
   mount --bind "$D/renderer-egl" /vendor/lib64/egl
   renderer_mounted=1
 fi
+# Each vendor bind retains its own mount flags and reference to the payload.
+# The temporary self-bind is only needed while preparing those binds; leaving
+# it mounted exposes an unnecessary /data/adb mount in every app namespace.
+umount "$D/payload"
+payload_mounted=0
 complete=1
 printf '%s file-aliases applied\n' "$(date '+%F %T')" >>/data/adb/s25-avd-lab/boot.log

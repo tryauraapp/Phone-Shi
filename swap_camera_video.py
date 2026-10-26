@@ -4,11 +4,16 @@
     python3 swap_camera_video.py --status                      # every lab phone's clip
     python3 swap_camera_video.py --avd NAME --video clip.mp4   # closed phone: set and launch
     python3 swap_camera_video.py --avd NAME --video clip.mp4 --restart   # close a running phone first
+    python3 swap_camera_video.py --avd NAME --video clip.mp4 --face-track --restart
 
 The emulator reads the camera source when the phone starts, so a swap always
 means a cold restart of that one phone. Clips already prepared for a phone are
 cached by checksum, so switching back to an earlier clip does not re-encode.
 Other phones are never touched.
+
+--face-track runs face_track_video.py on the source clip first (requires the
+.venv with mediapipe/opencv).  The face-tracked intermediate is cached next to
+the original inside the phone's camera/ directory.
 """
 
 import argparse
@@ -89,6 +94,13 @@ def main(argv=None):
     parser.add_argument('--fps', type=float, default=30.0, help='emulated camera frame rate')
     parser.add_argument('--restart', action='store_true', help='close the phone first if it is running')
     parser.add_argument('--no-launch', action='store_true', help='only save the clip; do not start the phone')
+    parser.add_argument('--face-track', action='store_true',
+                        help='run face tracking to center the face for app oval verification; '
+                             'requires .venv with mediapipe and opencv')
+    parser.add_argument('--face-target-y', type=float, default=0.38,
+                        help='vertical face position for --face-track (0=top, 1=bottom; default 0.38)')
+    parser.add_argument('--face-fill', type=float, default=0.55,
+                        help='face width as fraction of frame for --face-track (default 0.55)')
     parser.add_argument('--status', action='store_true', help='print each lab phone\'s current clip and exit')
     args = parser.parse_args(argv)
     env = dict(os.environ)
@@ -113,6 +125,31 @@ def main(argv=None):
         print(f'Closing {args.avd} ({serial}) ...', flush=True)
         if not close_phone(serial, directory, native):
             parser.exit(2, f'{args.avd} did not close; nothing changed.\n')
+    if args.face_track:
+        venv_python = ROOT / '.venv' / 'bin' / 'python3'
+        if not venv_python.is_file():
+            parser.exit(2, f'.venv not found at {venv_python}; create it with:\n'
+                           '  python3 -m venv .venv && .venv/bin/pip install mediapipe opencv-python-headless\n')
+        import hashlib as _hl
+        source_hash = _hl.sha256(video.read_bytes()).hexdigest()[:16]
+        tracked_name = f'face-tracked-{source_hash}.mp4'
+        tracked_path = directory / 'camera' / tracked_name
+        if tracked_path.exists():
+            print(f'Reusing cached face-tracked clip: {tracked_path.name}', flush=True)
+        else:
+            print(f'Face-tracking {video.name} ...', flush=True)
+            ft_result = subprocess.run([
+                str(venv_python), str(ROOT / 'face_track_video.py'),
+                str(video), str(tracked_path),
+                '--target-y', str(args.face_target_y),
+                '--face-fill', str(args.face_fill),
+            ], capture_output=True, text=True)
+            sys.stdout.write(ft_result.stdout)
+            if ft_result.returncode:
+                sys.stderr.write(ft_result.stderr)
+                parser.exit(2, 'Face tracking failed; the phone is unchanged.\n')
+        video = tracked_path
+
     print(f'Preparing {video.name} for {args.avd} ...', flush=True)
     result = subprocess.run([sys.executable, '-I', str(ROOT / 'configure_video_camera.py'), '--avd', args.avd,
                              '--video', str(video), '--preview-size', args.preview_size, '--fps', str(args.fps)],
