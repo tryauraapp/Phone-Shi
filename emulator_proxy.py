@@ -598,7 +598,7 @@ def main():
     env.setdefault('ANDROID_SDK_ROOT', str(sdk))
     env.setdefault('ANDROID_HOME', str(sdk))
     command = [str(sdk / 'emulator/emulator'), '-avd', args.avd,
-               '-no-snapshot-load', '-no-snapshot-save']
+               '-no-snapshot-load', '-no-snapshot-save', '-no-metrics']
     try:
         identity_args = identifier_options(args.avd, env)
     except (OSError, ValueError, KeyError, TypeError):
