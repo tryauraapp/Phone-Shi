@@ -489,6 +489,8 @@ def fleet_inventory():
         provisioning_phase = provisioning.get("phase")
         if provisioning_phase == "ready" and device:
             phase = "ready"
+        elif provisioning_phase == "failed" and device:
+            phase = "running-unmanaged"
         elif provisioning_phase and provisioning_phase not in {"ready"}:
             phase = provisioning_phase
         elif device and runtime_ready and (not camera_required or camera_ready):
