@@ -5,15 +5,15 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
   <meta name="robots" content="noindex,nofollow">
   <title>Phone Shi · Live phone</title>
-  <link rel="stylesheet" href="/phone.css?v=1">
+  <link rel="stylesheet" href="/phone.css?v=2">
 </head>
 <body>
   <main>
-    <header><div><b>Phone Shi</b><span id="status">Connecting…</span></div><button id="fullscreen">Full screen</button></header>
-    <section id="stage"><img id="screen" alt="Live Android phone screen" draggable="false"><div id="offline">Waiting for phone…</div></section>
+    <header><div><b>Phone Shi</b><span id="status">Connecting…</span></div><div class="tools"><button id="wake">Wake</button><button id="fullscreen">Full screen</button></div></header>
+    <section id="stage"><video id="video" autoplay muted playsinline disableRemotePlayback aria-label="Live Android phone video"></video><img id="screen" alt="Live Android phone screen" draggable="false" hidden><div id="offline">Connecting to phone…</div></section>
     <nav><button data-key="back">←<small>Back</small></button><button data-key="home">○<small>Home</small></button><button data-key="recent">▢<small>Recent</small></button></nav>
     <p>Tap, click or drag directly on the phone. This link controls only this phone and expires automatically.</p>
   </main>
-  <script src="/phone.js?v=1"></script>
+  <script src="/phone.js?v=2"></script>
 </body>
 </html>

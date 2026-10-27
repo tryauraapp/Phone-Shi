@@ -56,6 +56,27 @@ Each running panel controls phones on its own host. A Google Cloud installation
 therefore shows the VPS fleet, while the Mac installation shows the Mac fleet;
 remote host aggregation is a later deployment layer, not an implicit SSH call.
 
+## Browser phone links
+
+On a running phone, **Link / QR** opens an expiring link scoped to that saved
+AVD. The viewer wakes it on connection and renews a 45-second keep-awake lease
+every 15 seconds while the page is visible. After the last viewer disconnects
+or goes into the background, the original screen timeout is restored. **Wake**
+also wakes a phone manually switched off with its power button.
+
+The primary display path is scrcpy H.264, remuxed by PyAV into fragmented MP4
+without transcoding. MediaSource/ManagedMediaSource plays it in the browser.
+One encoder per emulator serves multiple viewers; slow viewers reconnect to
+the latest keyframe instead of accumulating delay. Streams stop after 15
+seconds without viewers. Unsupported browsers retain the PNG fallback.
+
+For an existing Linux installation, run `sudo bash install_browser_streaming.sh`
+and use the updated `phone-shi-control.service`. The full VPS installer includes
+this step. On Mac, install `scrcpy`, create `.local/controller-venv` with
+`--system-site-packages`, and install `av>=19,<20` into it. The Mac controller
+launcher automatically uses this environment when present. The streaming
+server uses its own Android shell process and never modifies camera media.
+
 ## Boundaries
 
 The panel prepares records and media. It does not automatically accept terms,

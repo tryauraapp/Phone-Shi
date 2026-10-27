@@ -21,6 +21,7 @@ import mimetypes
 import os
 from pathlib import Path
 import platform
+import queue
 import random
 import re
 import secrets
@@ -904,6 +905,44 @@ class Handler(SimpleHTTPRequestHandler):
     def phone_device(self, avd):
         return next((item for item in inventory()[0] if item.get("avd") == avd), None)
 
+    def send_phone_video(self, avd, token):
+        device = self.phone_device(avd)
+        if not device:
+            return self.error_json(404, "Phone is not running")
+        self.server.awake_leases.touch(device["serial"])
+        stream = self.server.phone_streams.get(device["serial"])
+        listener = stream.subscribe()
+        try:
+            first = listener.get(timeout=20)
+            if not first:
+                return self.error_json(409, stream.error or "Video stream ended")
+            self.send_response(200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.close_connection = True
+            self.wfile.write(first)
+            self.wfile.flush()
+            while self.phone_share(token):
+                try:
+                    chunk = listener.get(timeout=3)
+                except queue.Empty:
+                    if stream.done.is_set():
+                        break
+                    continue
+                if chunk is None:
+                    break
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except queue.Empty:
+            return self.error_json(503, stream.error or "Phone video startup timed out")
+        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            pass
+        finally:
+            stream.unsubscribe(listener)
+
     def send_file(self, path, content_type, *, cache="no-store"):
         data = path.read_bytes()
         self.send_response(200)
@@ -947,8 +986,8 @@ class Handler(SimpleHTTPRequestHandler):
                 raise ValueError("Swipe coordinates are outside the phone screen")
             command = ["adb", "-s", device["serial"], "shell", "input", "swipe",
                        *(str(value) for value in points), str(duration)]
-        elif action in {"back", "home", "recent"}:
-            key = {"back": "4", "home": "3", "recent": "187"}[action]
+        elif action in {"back", "home", "recent", "wake"}:
+            key = {"back": "4", "home": "3", "recent": "187", "wake": "224"}[action]
             command = ["adb", "-s", device["serial"], "shell", "input", "keyevent", key]
         else:
             raise ValueError("Unsupported phone input")
@@ -984,6 +1023,12 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        video = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)/video\.mp4", parsed.path)
+        if video:
+            share = self.phone_share(video.group(1))
+            if not share:
+                return self.error_json(403, "This phone link is invalid or has expired")
+            return self.send_phone_video(share["avd"], video.group(1))
         share_page = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)", parsed.path)
         if share_page:
             if not self.phone_share(share_page.group(1)):
@@ -1066,6 +1111,23 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        heartbeat = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)/heartbeat", parsed.path)
+        if heartbeat:
+            share = self.phone_share(heartbeat.group(1))
+            if not share:
+                return self.error_json(403, "This phone link is invalid or has expired")
+            device = self.phone_device(share["avd"])
+            if not device:
+                return self.error_json(404, "Phone is not running")
+            try:
+                self.server.awake_leases.touch(device["serial"])
+                result = subprocess.run(["adb", "-s", device["serial"], "shell", "wm", "size"],
+                                        capture_output=True, text=True, timeout=8, check=True)
+                sizes = re.findall(r"(\d+)x(\d+)", result.stdout)
+                width, height = map(int, sizes[-1])
+                return self.json({"awake": True, "width": width, "height": height})
+            except Exception as exc:
+                return self.error_json(409, str(exc))
         share_input = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)/input", parsed.path)
         if share_input:
             share = self.phone_share(share_input.group(1))
@@ -1288,6 +1350,15 @@ def main():
         (token or secrets.token_hex(32)).encode("utf-8")).digest()
     server.share_base_url = safe_share_base(
         os.environ.get("PHONE_SHI_SHARE_BASE_URL", ""))
+    sys.path.insert(0, str(REPO))
+    from phone_browser_stream import AwakeLeases, StreamPool
+    server.awake_leases = AwakeLeases()
+    server.phone_streams = StreamPool()
+    def shutdown_signal(signum, frame):
+        server.phone_streams.close()
+        server.awake_leases.close()
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, shutdown_signal)
     print(f"Creator Control is ready at http://{args.host}:{args.port}", flush=True)
     if token:
         print("API access is protected by CONTROL_PANEL_TOKEN.", flush=True)

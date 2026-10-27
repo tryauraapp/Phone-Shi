@@ -58,6 +58,8 @@ yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
   "platform-tools" "emulator" "platforms;android-35" \
   "system-images;android-35;google_apis_playstore;x86_64"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$SDK" "$INSTALL_DIR"
+bash "$INSTALL_DIR/install_browser_streaming.sh"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/.local"
 
 if [[ ! -f /etc/phone-shi/phone-shi.env ]]; then
   token=$(openssl rand -hex 32)

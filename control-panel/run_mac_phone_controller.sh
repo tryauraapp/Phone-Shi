@@ -21,6 +21,7 @@ fi
 
 python=/opt/homebrew/bin/python3
 [[ -x "$python" ]] || python=/usr/bin/python3
+[[ ! -x "$repo/.local/controller-venv/bin/python" ]] || python="$repo/.local/controller-venv/bin/python"
 
 export CONTROL_PANEL_TOKEN
 CONTROL_PANEL_TOKEN=$(<"$token_file")
