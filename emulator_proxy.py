@@ -600,7 +600,9 @@ def main():
     command = [str(sdk / 'emulator/emulator'), '-avd', args.avd,
                '-no-snapshot-load', '-no-snapshot-save', '-no-metrics']
     if platform.system() == 'Linux':
-        command += ['-no-window', '-skip-adb-auth']
+        if os.environ.get('PHONE_SHI_HEADLESS', '1') != '0':
+            command.append('-no-window')
+        command.append('-skip-adb-auth')
     try:
         identity_args = identifier_options(args.avd, env)
     except (OSError, ValueError, KeyError, TypeError):
