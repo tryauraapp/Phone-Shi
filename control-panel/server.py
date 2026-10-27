@@ -173,6 +173,74 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def sanitize_ui_xml(payload):
+    """Remove values typed into Android text fields before persisting a fixture."""
+    root = ET.fromstring(payload)
+    for node in root.iter("node"):
+        if node.get("password") == "true" or node.get("class", "").endswith("EditText"):
+            if node.get("text"):
+                node.set("text", "[redacted]")
+            if node.get("content-desc"):
+                node.set("content-desc", "[redacted]")
+    return ET.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
+def record_phone_screen(avd, app):
+    if app not in APP_SCHEMAS:
+        raise ValueError("Choose the app being reviewed")
+    device = next((item for item in inventory()[0] if item.get("avd") == avd), None)
+    if not device:
+        raise ValueError("Phone is not running")
+    serial = device["serial"]
+    subprocess.run(
+        ["adb", "-s", serial, "shell", "uiautomator", "dump", "--compressed",
+         "/sdcard/account-panel-record.xml"], capture_output=True, timeout=15, check=True)
+    xml = subprocess.run(
+        ["adb", "-s", serial, "exec-out", "cat", "/sdcard/account-panel-record.xml"],
+        capture_output=True, timeout=12, check=True).stdout
+    cleaned = sanitize_ui_xml(xml)
+    root = ET.fromstring(cleaned)
+    packages = [node.get("package") for node in root.iter("node") if node.get("package")]
+    package = max(set(packages), key=packages.count) if packages else "unknown"
+    labels = []
+    for node in root.iter("node"):
+        value = (node.get("text") or node.get("content-desc") or "").strip()
+        if (value and value != "[redacted]" and len(value) <= 160 and
+                (node.get("clickable") == "true" or node.get("checkable") == "true") and
+                value not in labels):
+            labels.append(value)
+    focus = subprocess.run(
+        ["adb", "-s", serial, "shell", "dumpsys", "window", "windows"],
+        capture_output=True, text=True, timeout=12, check=True).stdout
+    match = re.search(r"mCurrentFocus=.*? ([A-Za-z0-9._]+/[A-Za-z0-9._$]+)", focus)
+    activity = match.group(1) if match else "unknown"
+    fingerprint = hashlib.sha256(cleaned).hexdigest()[:16]
+    folder = DATA / "screen-recordings" / app / avd
+    folder.mkdir(parents=True, exist_ok=True)
+    os.chmod(folder, 0o700)
+    existing = next(folder.glob(f"*-{fingerprint}.json"), None)
+    if existing:
+        return {**json.loads(existing.read_text()), "duplicate": True}
+    screenshot = subprocess.run(
+        ["adb", "-s", serial, "exec-out", "screencap", "-p"],
+        capture_output=True, timeout=12, check=True).stdout
+    if not screenshot.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError("Phone screenshot was unavailable")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    base = folder / f"{stamp}-{fingerprint}"
+    base.with_suffix(".xml").write_bytes(cleaned)
+    base.with_suffix(".png").write_bytes(screenshot)
+    record = {
+        "app": app, "avd": avd, "serial": serial, "package": package,
+        "activity": activity, "fingerprint": fingerprint, "labels": labels,
+        "capturedAt": now(), "duplicate": False,
+    }
+    base.with_suffix(".json").write_text(json.dumps(record, indent=2) + "\n")
+    for path in (base.with_suffix(".xml"), base.with_suffix(".png"), base.with_suffix(".json")):
+        os.chmod(path, 0o600)
+    return record
+
+
 def connect():
     DATA.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB)
@@ -977,6 +1045,11 @@ class Handler(SimpleHTTPRequestHandler):
                     raise ValueError("Unsupported phone input")
                 subprocess.run(command, capture_output=True, timeout=10, check=True)
                 return self.json({"avd": avd, "action": action})
+            match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/record-screen", parsed.path)
+            if match:
+                data = self.read_json()
+                return self.json(record_phone_screen(
+                    match.group(1), str(data.get("app", ""))), 201)
             match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/resume-setup", parsed.path)
             if match:
                 return self.json(resume_phone_setup(match.group(1)), 202)

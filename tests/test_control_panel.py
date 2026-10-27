@@ -68,6 +68,18 @@ class ControlPanelTests(unittest.TestCase):
             panel.row_json(row)["profiles"]["tinder"]["relationship_goal"],
             "Long-term partner")
 
+    def test_saved_screen_fixture_redacts_text_entry_values(self):
+        xml = (b'<hierarchy><node class="android.widget.TextView" text="Birthday"/>'
+               b'<node class="android.widget.EditText" text="private value" '
+               b'content-desc="typed value"/><node class="android.widget.EditText" '
+               b'password="true" text="secret"/></hierarchy>')
+        cleaned = panel.sanitize_ui_xml(xml).decode()
+        self.assertIn('text="Birthday"', cleaned)
+        self.assertNotIn("private value", cleaned)
+        self.assertNotIn("typed value", cleaned)
+        self.assertNotIn("secret", cleaned)
+        self.assertEqual(cleaned.count("[redacted]"), 3)
+
     def test_s25_identity_matches_phone_and_keeps_home_city(self):
         location = {"label": "Miami, Florida, United States", "latitude": 25.77,
                     "longitude": -80.21, "timezone": "America/New_York"}

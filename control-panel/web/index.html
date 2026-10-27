@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Creator Control</title><meta name="description" content="Prepare creator profiles and per-account camera media.">
-  <link rel="stylesheet" href="/styles.css?v=7">
+  <link rel="stylesheet" href="/styles.css?v=8">
 </head>
 <body>
   <div class="shell">
@@ -90,8 +90,9 @@
     <form method="dialog">
       <div class="dialog-head"><div><p class="kicker">Interactive live view</p><h2 id="viewerTitle">Phone</h2></div><button value="cancel" class="icon-btn">×</button></div>
       <div class="viewer-stage"><img id="viewerImage" alt="Live Android phone screen"></div>
+      <div class="viewer-record"><label>Script fixture for<select id="viewerApp"></select></label><button type="button" class="primary" id="saveScreenFixture">▣ Save screen fixture</button></div>
       <div class="viewer-actions"><button type="button" class="ghost viewer-key" data-key="back">← Back</button><button type="button" class="ghost viewer-key" data-key="home">Home</button><button type="button" class="ghost viewer-key" data-key="recent">Recent</button><span>Click the screen to tap that phone.</span></div>
     </form>
   </dialog>
-  <script src="/app.js?v=6"></script>
+  <script src="/app.js?v=8"></script>
 </body></html>

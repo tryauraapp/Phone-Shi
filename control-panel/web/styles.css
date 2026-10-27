@@ -52,5 +52,6 @@
 .viewer-stage img{display:block;max-height:72vh;max-width:100%;object-fit:contain;cursor:crosshair}
 .viewer-actions{display:flex;gap:8px;align-items:center;margin-top:12px}
 .viewer-actions span{margin-left:auto;color:var(--muted);font-size:9px}
+.viewer-record{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;margin-top:12px}.viewer-record label{margin:0}.viewer-record button{height:39px}
 @media(max-width:900px){.nav span{display:block;margin:3px 0 0;font-size:8px}.fleet-toolbar .header-actions .ghost{display:inline-block}}
 @media(max-width:620px){.fleet-toolbar{align-items:flex-start;gap:10px}.fleet-toolbar .header-actions{flex-wrap:wrap;justify-content:flex-end}.fleet-toolbar .header-actions button{padding:8px;font-size:9px}}
