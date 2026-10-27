@@ -217,7 +217,17 @@ def create(args, job):
     for required in (adb, emulator, avdmanager, image / "system.img"):
         if not required.exists():
             raise RuntimeError(f"Required Android component is missing: {required}")
-    if (avd_home / f"{args.avd}.ini").exists() or avd_dir.exists() or setup.parent.exists():
+    existing_avd = (avd_home / f"{args.avd}.ini").exists() and avd_dir.exists()
+    saved_proxy = setup / "nodemaven-proxy"
+    if args.resume_create:
+        if not existing_avd or not saved_proxy.is_file() or not job.request_path.is_file():
+            raise RuntimeError("The failed phone has no complete AVD/proxy checkpoint to resume")
+        previous = json.loads(job.request_path.read_text())
+        if any(previous.get(key) != value for key, value in {
+                "avd": args.avd, "app": args.app, "region": args.region,
+                "city": args.city}.items()):
+            raise RuntimeError("Resume request does not match the failed phone")
+    elif existing_avd or setup.parent.exists():
         raise RuntimeError("A phone or saved setup already uses this name")
     if shutil.disk_usage(avd_home).free < 12 * 1024 ** 3:
         raise RuntimeError("At least 12 GB free disk space is required for a new phone")
@@ -232,16 +242,23 @@ def create(args, job):
         "createdAt": stamp(),
     }
     atomic_json(job.request_path, request)
-    setup.mkdir(parents=True, exist_ok=False)
+    setup.mkdir(parents=True, exist_ok=args.resume_create)
 
     job.update("provisioning", "preflight", 5, "KVM, Android SDK, storage and inputs verified")
-    job.update("provisioning", "create-avd", 14, "Creating a fresh Android 15 Google Play x86-64 AVD")
-    avd_home.mkdir(parents=True, exist_ok=True)
-    run([avdmanager, "create", "avd", "--name", args.avd, "--package", IMAGE,
-         "--device", "pixel_6", "--force"], input_text="no\n", timeout=180)
-    if not avd_dir.is_dir():
-        raise RuntimeError("avdmanager did not create the expected AVD directory")
+    if args.resume_create:
+        job.update("provisioning", "create-avd", 14, "Reusing the failed phone's intact Android AVD")
+    else:
+        job.update("provisioning", "create-avd", 14, "Creating a fresh Android 15 Google Play x86-64 AVD")
+        avd_home.mkdir(parents=True, exist_ok=True)
+        run([avdmanager, "create", "avd", "--name", args.avd, "--package", IMAGE,
+             "--device", "pixel_6", "--force"], input_text="no\n", timeout=180)
+        if not avd_dir.is_dir():
+            raise RuntimeError("avdmanager did not create the expected AVD directory")
     set_config(avd_dir / "config.ini", {
+        "AvdId": args.avd,
+        "avd.id": args.avd,
+        "avd.name": args.avd,
+        "PlayStore.enabled": "yes",
         "hw.ramSize": args.ram,
         "hw.cpu.ncore": args.cores,
         "disk.dataPartition.size": "12G",
@@ -256,11 +273,14 @@ def create(args, job):
         "showDeviceFrame": "no",
     })
 
-    job.update("provisioning", "proxy", 28, f"Provisioning a city-targeted T-Mobile proxy for {args.city}, {args.region}")
     proxy_path = setup / "nodemaven-proxy"
-    run([sys.executable, "-I", REPO / "nodemaven_proxy.py", "--avd", args.avd,
-         "--key-file", args.proxy_key, "--output", proxy_path,
-         "--region", args.region, "--city", args.city], timeout=180, capture=False)
+    if args.resume_create:
+        job.update("provisioning", "proxy", 28, "Reusing the already verified city proxy")
+    else:
+        job.update("provisioning", "proxy", 28, f"Provisioning a city-targeted T-Mobile proxy for {args.city}, {args.region}")
+        run([sys.executable, "-I", REPO / "nodemaven_proxy.py", "--avd", args.avd,
+             "--key-file", args.proxy_key, "--output", proxy_path,
+             "--region", args.region, "--city", args.city], timeout=180, capture=False)
     location_result = run(
         [sys.executable, "-I", REPO / "emulator_proxy.py", "--location",
          "--proxy-file", proxy_path], timeout=90)
@@ -349,6 +369,8 @@ def main():
     parser.add_argument("--data", default=os.environ.get(
         "ACCOUNT_PANEL_DATA", str(REPO / "control-panel/data")))
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--resume-create", action="store_true",
+                        help="Resume a failed pre-first-boot creation from its saved AVD and proxy")
     parser.add_argument("--app", choices=sorted(APP_PACKAGES))
     parser.add_argument("--region")
     parser.add_argument("--city")
