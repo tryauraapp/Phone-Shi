@@ -94,5 +94,18 @@
       <div class="viewer-actions"><button type="button" class="ghost viewer-key" data-key="back">← Back</button><button type="button" class="ghost viewer-key" data-key="home">Home</button><button type="button" class="ghost viewer-key" data-key="recent">Recent</button><span>Click the screen to tap that phone.</span></div>
     </form>
   </dialog>
-  <script src="/app.js?v=9"></script>
+  <dialog id="phoneShare" class="phone-share">
+    <form method="dialog">
+      <div class="dialog-head"><div><p class="kicker">Browser phone access</p><h2 id="shareTitle">Open full phone</h2></div><button value="cancel" class="icon-btn">×</button></div>
+      <div class="share-layout">
+        <img id="shareQr" alt="QR code for this phone">
+        <div class="share-details">
+          <label>Phone link<input id="shareUrl" readonly></label>
+          <div class="share-buttons"><button type="button" class="ghost" id="copyShareUrl">Copy link</button><button type="button" class="primary" id="openShareUrl">Open phone</button></div>
+          <p id="shareExpiry"></p><p id="shareNetworkNote"></p>
+        </div>
+      </div>
+    </form>
+  </dialog>
+  <script src="/app.js?v=10"></script>
 </body></html>

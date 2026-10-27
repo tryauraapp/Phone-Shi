@@ -23,6 +23,7 @@ SERVICE_USER=${PHONE_SHI_USER:-phone-shi}
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   ca-certificates curl unzip git ffmpeg openjdk-17-jdk-headless python3 python3-pil \
+  qrencode \
   qemu-kvm cpu-checker libgl1 libpulse0 libx11-6 libxcomposite1 libxcursor1 \
   libxi6 libxrandr2 libxrender1 libxtst6 xvfb x11vnc novnc websockify fluxbox
 

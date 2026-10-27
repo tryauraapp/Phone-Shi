@@ -16,6 +16,24 @@ SPEC.loader.exec_module(panel)
 
 
 class ControlPanelTests(unittest.TestCase):
+    def test_phone_share_token_is_scoped_signed_and_expires(self):
+        secret = b"test-secret"
+        token = panel.encode_phone_share("Galaxy_S25_Test", secret, expires=200)
+        self.assertEqual(
+            panel.decode_phone_share(token, secret, timestamp=199),
+            {"avd": "Galaxy_S25_Test", "expires": 200})
+        self.assertIsNone(panel.decode_phone_share(token + "x", secret, timestamp=199))
+        self.assertIsNone(panel.decode_phone_share(token, secret, timestamp=201))
+
+    def test_share_base_accepts_only_bare_http_origins(self):
+        self.assertEqual(panel.safe_share_base("https://phones.example.com/"),
+                         "https://phones.example.com")
+        self.assertEqual(panel.safe_share_base("http://100.64.0.10:8790"),
+                         "http://100.64.0.10:8790")
+        self.assertEqual(panel.safe_share_base("https://user:pass@example.com"), "")
+        self.assertEqual(panel.safe_share_base("javascript:alert(1)"), "")
+        self.assertEqual(panel.safe_share_base("https://example.com/path"), "")
+
     def test_provisioning_phone_appears_before_avd_creation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

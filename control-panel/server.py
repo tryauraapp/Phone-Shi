@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from email.parser import BytesParser
 from email.policy import default
 import hashlib
+import hmac
 import importlib.util
 import json
 import mimetypes
@@ -30,7 +31,7 @@ import subprocess
 import sys
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent
@@ -60,6 +61,7 @@ PACKAGE_APPS = {
     "com.ftw_and_co.happn": "Happn",
 }
 FLEET_JOBS = {}
+SHARE_TTL_SECONDS = int(os.environ.get("PHONE_SHI_SHARE_TTL_SECONDS", "86400"))
 
 
 TINDER_INTERESTS = ["Atari", "Manga", "Papeda", "Ludo", "Gudeg", "League of Legends", "Food tours", "Maggi", "90s Kid", "Sega", "Sambal", "Foodie", "Harry Potter", "MLB", "Fortnite", "Marvel", "E-Sports", "PlayStation", "Comic-con", "Dungeons & Dragons", "Soto", "Biryani", "Xbox", "Among Us", "NBA", "Sate"]
@@ -171,6 +173,53 @@ APP_SCHEMAS.update({
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def encode_phone_share(avd, secret, *, expires=None):
+    """Create an expiring, phone-scoped bearer token for the browser viewer."""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", avd):
+        raise ValueError("Invalid phone name")
+    expiry = int(expires if expires is not None else
+                 datetime.now(timezone.utc).timestamp() + SHARE_TTL_SECONDS)
+    payload = json.dumps(
+        {"a": avd, "e": expiry}, separators=(",", ":"), sort_keys=True).encode()
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=").decode()
+    signature = hmac.new(secret, encoded.encode(), hashlib.sha256).digest()
+    return encoded + "." + base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
+
+
+def decode_phone_share(token, secret, *, timestamp=None):
+    """Validate a phone share token and return its AVD and expiry."""
+    try:
+        encoded, supplied = token.split(".", 1)
+        expected = hmac.new(secret, encoded.encode(), hashlib.sha256).digest()
+        signature = base64.urlsafe_b64decode(supplied + "=" * (-len(supplied) % 4))
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError
+        payload = json.loads(base64.urlsafe_b64decode(
+            encoded + "=" * (-len(encoded) % 4)))
+        avd, expiry = str(payload["a"]), int(payload["e"])
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", avd):
+            raise ValueError
+        current = int(timestamp if timestamp is not None else
+                      datetime.now(timezone.utc).timestamp())
+        if expiry < current:
+            raise ValueError
+        return {"avd": avd, "expires": expiry}
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        return None
+
+
+def safe_share_base(value):
+    """Accept only a bare HTTP(S) origin for generated links."""
+    value = str(value or "").strip().rstrip("/")
+    parsed = urlparse(value)
+    if (parsed.scheme not in {"http", "https"} or not parsed.netloc or
+            parsed.username or parsed.password):
+        return ""
+    if parsed.path not in {"", "/"} or parsed.params or parsed.query or parsed.fragment:
+        return ""
+    return value
 
 
 def sanitize_ui_xml(payload):
@@ -840,6 +889,72 @@ class Handler(SimpleHTTPRequestHandler):
         parsed = urlparse(origin)
         return parsed.scheme in {"http", "https"} and parsed.netloc == self.headers.get("Host")
 
+    def phone_share(self, token):
+        return decode_phone_share(token, self.server.share_secret)
+
+    def share_url(self, token, requested_base=""):
+        base = self.server.share_base_url or safe_share_base(requested_base)
+        if not base:
+            proto = self.headers.get("X-Forwarded-Proto", "http").split(",", 1)[0].strip()
+            if proto not in {"http", "https"}:
+                proto = "http"
+            base = f"{proto}://{self.headers.get('Host', '127.0.0.1:8790')}"
+        return f"{base}/phone/{quote(token, safe='.')}"
+
+    def phone_device(self, avd):
+        return next((item for item in inventory()[0] if item.get("avd") == avd), None)
+
+    def send_file(self, path, content_type, *, cache="no-store"):
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", cache)
+        self.end_headers()
+        self.wfile.write(data)
+
+    def send_phone_screen(self, avd):
+        device = self.phone_device(avd)
+        if not device:
+            return self.error_json(404, "Phone is not running")
+        result = subprocess.run(
+            ["adb", "-s", device["serial"], "exec-out", "screencap", "-p"],
+            capture_output=True, timeout=12, check=True)
+        if not result.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
+            return self.error_json(409, "Phone screen capture was unavailable")
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(result.stdout)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(result.stdout)
+
+    def apply_phone_input(self, avd, data):
+        device = self.phone_device(avd)
+        if not device:
+            raise ValueError("Phone is not running")
+        action = data.get("action")
+        if action == "tap":
+            x, y = int(data.get("x", -1)), int(data.get("y", -1))
+            if not 0 <= x <= 4096 or not 0 <= y <= 4096:
+                raise ValueError("Tap coordinates are outside the phone screen")
+            command = ["adb", "-s", device["serial"], "shell", "input", "tap",
+                       str(x), str(y)]
+        elif action == "swipe":
+            points = [int(data.get(key, -1)) for key in ("x1", "y1", "x2", "y2")]
+            duration = max(80, min(1500, int(data.get("duration", 300))))
+            if any(value < 0 or value > 4096 for value in points):
+                raise ValueError("Swipe coordinates are outside the phone screen")
+            command = ["adb", "-s", device["serial"], "shell", "input", "swipe",
+                       *(str(value) for value in points), str(duration)]
+        elif action in {"back", "home", "recent"}:
+            key = {"back": "4", "home": "3", "recent": "187"}[action]
+            command = ["adb", "-s", device["serial"], "shell", "input", "keyevent", key]
+        else:
+            raise ValueError("Unsupported phone input")
+        subprocess.run(command, capture_output=True, timeout=10, check=True)
+        return {"avd": avd, "action": action}
+
     def json(self, value, status=200):
         body = json.dumps(value, ensure_ascii=False).encode()
         self.send_response(status)
@@ -869,6 +984,34 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        share_page = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)", parsed.path)
+        if share_page:
+            if not self.phone_share(share_page.group(1)):
+                return self.error_json(403, "This phone link is invalid or has expired")
+            return self.send_file(DIST / "phone.html", "text/html; charset=utf-8")
+        share_screen = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)/screen\.png", parsed.path)
+        if share_screen:
+            share = self.phone_share(share_screen.group(1))
+            if not share:
+                return self.error_json(403, "This phone link is invalid or has expired")
+            return self.send_phone_screen(share["avd"])
+        share_qr = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)/qr\.svg", parsed.path)
+        if share_qr:
+            token = share_qr.group(1)
+            if not self.phone_share(token):
+                return self.error_json(403, "This phone link is invalid or has expired")
+            base = parse_qs(parsed.query).get("base", [""])[0]
+            target = self.share_url(token, base)
+            result = subprocess.run(
+                ["qrencode", "-t", "SVG", "-m", "1", "-o", "-", target],
+                capture_output=True, timeout=8, check=True)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/svg+xml")
+            self.send_header("Content-Length", str(len(result.stdout)))
+            self.send_header("Cache-Control", "private, max-age=300")
+            self.end_headers()
+            self.wfile.write(result.stdout)
+            return
         if parsed.path.startswith("/api/") and not self.auth_ok():
             return self.error_json(401, "Control token required")
         if parsed.path == "/api/bootstrap":
@@ -889,22 +1032,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json({"phones": fleet_inventory(), "host": fleet_host()})
         match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/screen\.png", parsed.path)
         if match:
-            avd = match.group(1)
-            device = next((item for item in inventory()[0] if item.get("avd") == avd), None)
-            if not device:
-                return self.error_json(404, "Phone is not running")
-            result = subprocess.run(
-                ["adb", "-s", device["serial"], "exec-out", "screencap", "-p"],
-                capture_output=True, timeout=12, check=True)
-            if not result.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
-                return self.error_json(409, "Phone screen capture was unavailable")
-            self.send_response(200)
-            self.send_header("Content-Type", "image/png")
-            self.send_header("Content-Length", str(len(result.stdout)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(result.stdout)
-            return
+            return self.send_phone_screen(match.group(1))
         match = re.fullmatch(r"/api/assets/([a-zA-Z0-9_]+)", parsed.path)
         if match:
             with connect() as db:
@@ -938,6 +1066,17 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urlparse(self.path)
+        share_input = re.fullmatch(r"/phone/([A-Za-z0-9._-]+)/input", parsed.path)
+        if share_input:
+            share = self.phone_share(share_input.group(1))
+            if not share:
+                return self.error_json(403, "This phone link is invalid or has expired")
+            try:
+                return self.json(self.apply_phone_input(share["avd"], self.read_json()))
+            except (ValueError, json.JSONDecodeError) as exc:
+                return self.error_json(400, str(exc))
+            except subprocess.CalledProcessError:
+                return self.error_json(409, "The requested emulator operation failed")
         if not self.auth_ok():
             return self.error_json(401, "Control token required")
         try:
@@ -1029,24 +1168,27 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.json(result, 202)
             match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/input", parsed.path)
             if match:
+                return self.json(self.apply_phone_input(match.group(1), self.read_json()))
+            match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/share", parsed.path)
+            if match:
                 avd = match.group(1)
-                device = next((item for item in inventory()[0] if item.get("avd") == avd), None)
-                if not device:
-                    raise ValueError("Phone is not running")
+                if not self.phone_device(avd):
+                    raise ValueError("Start the phone before creating a browser link")
                 data = self.read_json()
-                action = data.get("action")
-                if action == "tap":
-                    x, y = int(data.get("x", -1)), int(data.get("y", -1))
-                    if not 0 <= x <= 4096 or not 0 <= y <= 4096:
-                        raise ValueError("Tap coordinates are outside the phone screen")
-                    command = ["adb", "-s", device["serial"], "shell", "input", "tap", str(x), str(y)]
-                elif action in {"back", "home", "recent"}:
-                    key = {"back": "4", "home": "3", "recent": "187"}[action]
-                    command = ["adb", "-s", device["serial"], "shell", "input", "keyevent", key]
-                else:
-                    raise ValueError("Unsupported phone input")
-                subprocess.run(command, capture_output=True, timeout=10, check=True)
-                return self.json({"avd": avd, "action": action})
+                token = encode_phone_share(avd, self.server.share_secret)
+                url = self.share_url(token, data.get("baseUrl", ""))
+                parsed_url = urlparse(url)
+                portable = parsed_url.hostname not in {"127.0.0.1", "localhost", "::1"}
+                expires = decode_phone_share(token, self.server.share_secret)["expires"]
+                qr_base = url.rsplit("/phone/", 1)[0]
+                return self.json({
+                    "avd": avd,
+                    "url": url,
+                    "qr": f"/phone/{token}/qr.svg?base={quote(qr_base, safe='')}",
+                    "expires": datetime.fromtimestamp(
+                        expires, timezone.utc).isoformat(timespec="seconds"),
+                    "portable": portable,
+                }, 201)
             match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/record-screen", parsed.path)
             if match:
                 data = self.read_json()
@@ -1142,6 +1284,10 @@ def main():
     connect().close()
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     server.control_token = token
+    server.share_secret = hashlib.sha256(
+        (token or secrets.token_hex(32)).encode("utf-8")).digest()
+    server.share_base_url = safe_share_base(
+        os.environ.get("PHONE_SHI_SHARE_BASE_URL", ""))
     print(f"Creator Control is ready at http://{args.host}:{args.port}", flush=True)
     if token:
         print("API access is protected by CONTROL_PANEL_TOKEN.", flush=True)
