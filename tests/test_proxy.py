@@ -104,6 +104,22 @@ class ProxyTests(unittest.TestCase):
             self.assertIn('restore_phone_runtime.py', command[2])
             self.assertEqual(command[-2:], ['--backups', directory])
 
+    def test_vps_certificate_selects_linux_runtime_restorer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            setup = Path(directory) / 'Phone_A/setup'
+            setup.mkdir(parents=True)
+            (setup / 'setup-complete.json').write_text(json.dumps({
+                'schema': 2, 'platform': 'linux-x86_64', 'avd': 'Phone_A'}))
+            command = proxy.runtime_restore_command('Phone_A', directory)
+            self.assertIn('restore_vps_phone_runtime.py', command[2])
+            self.assertNotIn('--backups', command)
+
+    def test_backup_environment_selects_vps_phone_records(self):
+        with patch.dict(os.environ, {'PHONE_BACKUPS': '/private/vps-backups'}):
+            self.assertEqual(
+                proxy.phone_proxy_file('Phone_A'),
+                Path('/private/vps-backups/Phone_A/setup/nodemaven-proxy'))
+
     def test_certified_proxy_binding_rejects_drift(self):
         expected = dict(ip='192.0.2.8', latitude=33.7486, longitude=-84.388,
                         timezone='America/New_York')

@@ -28,15 +28,22 @@ android_sdk_root = _host_module.android_sdk_root
 DEFAULT_FILE = Path(__file__).resolve().parent / '.local' / 'emulator-proxy'
 
 
+def phone_backup_root(home=None):
+    if home is not None:
+        return Path(home)
+    configured = os.environ.get('PHONE_BACKUPS')
+    return Path(configured) if configured else Path.home() / 'galaxy_s25_avd_backups'
+
+
 def phone_proxy_file(avd, home=None):
     """Return a provisioned per-phone proxy without exposing its contents."""
-    root = Path(home) if home else Path.home() / 'galaxy_s25_avd_backups'
+    root = phone_backup_root(home)
     return root / avd / 'setup' / 'nodemaven-proxy'
 
 
 def phone_location_file(avd, home=None):
     """Return the proxy-derived location record saved for one phone."""
-    root = Path(home) if home else Path.home() / 'galaxy_s25_avd_backups'
+    root = phone_backup_root(home)
     return root / avd / 'setup' / 'proxy-location.json'
 
 
@@ -76,7 +83,7 @@ def timezone_options(avd, extra, home=None, required=False):
 
 def phone_certificate_file(avd, home=None):
     """Return the completion certificate that makes a phone startup managed."""
-    root = Path(home) if home else Path.home() / 'galaxy_s25_avd_backups'
+    root = phone_backup_root(home)
     return root / avd / 'setup' / 'setup-complete.json'
 
 
@@ -85,9 +92,16 @@ def runtime_restore_command(avd, home=None):
     certificate = phone_certificate_file(avd, home)
     if not certificate.is_file():
         return None
-    command = [sys.executable, '-I', str(Path(__file__).resolve().with_name(
-        'restore_phone_runtime.py')), '--avd', avd]
-    if home is not None:
+    try:
+        value = json.loads(certificate.read_text())
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        raise ValueError('setup certificate is unreadable')
+    script = ('restore_vps_phone_runtime.py'
+              if value.get('schema') == 2 and value.get('platform') == 'linux-x86_64'
+              else 'restore_phone_runtime.py')
+    command = [sys.executable, '-I', str(Path(__file__).resolve().with_name(script)),
+               '--avd', avd]
+    if home is not None and script == 'restore_phone_runtime.py':
         command += ['--backups', str(Path(home))]
     return command
 

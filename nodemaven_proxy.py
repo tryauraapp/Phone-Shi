@@ -18,7 +18,8 @@ from urllib.request import Request, urlopen
 API_ROOT = "https://api.nodemaven.com/api/v2/base"
 ROOT = Path(__file__).resolve().parent
 DEFAULT_KEY_FILE = ROOT / ".local" / "nodemaven-api-key"
-DEFAULT_PROXY_ROOT = Path.home() / "galaxy_s25_avd_backups"
+DEFAULT_PROXY_ROOT = Path(
+    os.environ.get("PHONE_BACKUPS", Path.home() / "galaxy_s25_avd_backups"))
 
 
 class NodeMavenError(RuntimeError):

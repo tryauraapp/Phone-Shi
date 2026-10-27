@@ -78,3 +78,28 @@ sudo systemctl restart phone-shi-control
 Back up `/var/lib/phone-shi` and `/etc/phone-shi/phone-shi.env` separately.
 The install directory is replaceable application code; the state directory is
 not.
+
+## Create phones from the CRM
+
+Open **Phones → New phone**. Choose the app, exact NodeMaven US state/city,
+guest RAM/cores, and that phone's camera video. The first run also asks for a
+NodeMaven API key; it is stored mode `0600` under the external control-panel
+state directory and is never returned to the browser.
+
+Provisioning is asynchronous and its stage, progress, and private log survive a
+control-panel restart. The worker creates an Android 15 Google Play x86-64 AVD,
+provisions and verifies its city-targeted T-Mobile proxy, saves the
+proxy-derived timezone/GPS, prepares the native 3:4 camera source, cold-boots
+through the proxy, checks Camera2 texture motion, and applies bounded battery
+state.
+
+Google Play authentication and installation remain visible user checkpoints.
+When the phone row says **Action needed**, use **Screen**, complete Play sign-in
+and install the selected app, then click **Verify setup**. Only an observed
+installed package and passing camera/runtime checks produce the VPS setup
+certificate that enables normal **Open** launches.
+
+The VPS certificate records the real Google Android Emulator model and x86-64
+ABI. It does not claim the standard Linux emulator is a physical Samsung
+device; the Mac-only ARM64 identity transformations remain outside this
+workflow.

@@ -16,6 +16,29 @@ SPEC.loader.exec_module(panel)
 
 
 class ControlPanelTests(unittest.TestCase):
+    def test_provisioning_phone_appears_before_avd_creation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            job = root / "data/provisioning/VPS_Phone_Test"
+            job.mkdir(parents=True)
+            (job / "status.json").write_text(json.dumps({
+                "phase": "manual-required", "stage": "google-play",
+                "progress": 82, "message": "Install Tinder"}))
+            (job / "request.json").write_text(json.dumps({
+                "app": "tinder", "city": "Houston", "region": "Texas"}))
+            old = (panel.DATA, panel.DB, panel.PHONE_BACKUPS)
+            panel.DATA, panel.DB = root / "data", root / "data/panel.sqlite3"
+            panel.PHONE_BACKUPS = root / "backups"
+            try:
+                with patch.object(panel, "inventory", return_value=([], [], {})):
+                    phone = panel.fleet_inventory()[0]
+            finally:
+                panel.DATA, panel.DB, panel.PHONE_BACKUPS = old
+            self.assertEqual(phone["avd"], "VPS_Phone_Test")
+            self.assertEqual(phone["phase"], "manual-required")
+            self.assertEqual(phone["apps"], ["Tinder"])
+            self.assertEqual(phone["provisioning"]["progress"], 82)
+
     def test_creator_schema_migrates_and_decodes_saved_profiles(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "panel.sqlite3"

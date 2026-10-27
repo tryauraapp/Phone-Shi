@@ -45,6 +45,7 @@ DEFAULT_VARIANTS = ROOT / "vendor" / "variants.py"
 VARIANTS_PATH = Path(os.environ.get("IG_VARIANTS_PATH", DEFAULT_VARIANTS)).resolve()
 MAX_UPLOAD = 30 * 1024 * 1024
 MAX_VIDEO_UPLOAD = 512 * 1024 * 1024
+NODEMAVEN_KEY = DATA / "secrets" / "nodemaven-api-key"
 IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic"}
 VIDEO_TYPES = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
                "video/x-m4v": ".m4v", "application/octet-stream": ""}
@@ -219,10 +220,20 @@ def saved_phone_profiles():
                 if not location.get(key) and location.get(key) != 0:
                     raise ValueError(key)
             avd = path.parents[1].name
+            saved_device = private_read_json(path.parent / "profile/device-profile.json")
+            samsung = str(saved_device.get("model", "")).startswith("SM-S93")
             profiles[avd] = {
                 "avd": avd,
-                "device": {"brand": "samsung", "name": "Galaxy S25", "make": "samsung",
-                           "model": "SM-S931B", "android": "15"},
+                "device": {
+                    "brand": ("samsung" if samsung else
+                              str(saved_device.get("manufacturer") or "Android").lower()),
+                    "name": "Galaxy S25" if samsung else str(
+                        saved_device.get("model") or "VPS phone"),
+                    "make": ("samsung" if samsung else
+                             str(saved_device.get("manufacturer") or "Android")),
+                    "model": saved_device.get("model") or "VPS phone",
+                    "android": saved_device.get("android") or "15",
+                },
                 "location": {key: location[key] for key in ("latitude", "longitude", "timezone", "label")},
             }
         except (OSError, ValueError, KeyError, json.JSONDecodeError):
@@ -281,11 +292,30 @@ def fleet_log_path(avd):
 
 
 def fleet_log_tail(avd, limit=12000):
+    chunks = []
+    worker = DATA / "provisioning" / avd / "worker.log"
     try:
-        text = fleet_log_path(avd).read_text(errors="replace")
+        chunks.append(worker.read_text(errors="replace"))
     except OSError:
-        return ""
-    return text[-limit:]
+        pass
+    try:
+        chunks.append(fleet_log_path(avd).read_text(errors="replace"))
+    except OSError:
+        pass
+    return "\n".join(chunks)[-limit:]
+
+
+def provisioning_record(avd):
+    folder = DATA / "provisioning" / avd
+    return private_read_json(folder / "status.json"), private_read_json(folder / "request.json")
+
+
+def provisioning_names():
+    root = DATA / "provisioning"
+    if not root.is_dir():
+        return set()
+    return {path.name for path in root.iterdir()
+            if path.is_dir() and re.fullmatch(r"[A-Za-z0-9._-]+", path.name)}
 
 
 def fleet_host():
@@ -311,11 +341,12 @@ def fleet_inventory():
         if db is not None:
             db.close()
     phones = []
-    for avd in sorted(set(avds) | set(profiles)):
+    for avd in sorted(set(avds) | set(profiles) | provisioning_names()):
         if not re.fullmatch(r"[A-Za-z0-9._-]+", avd):
             continue
         setup = PHONE_BACKUPS / avd / "setup"
         certificate = private_read_json(setup / "setup-complete.json")
+        provisioning, provision_request = provisioning_record(avd)
         location = private_read_json(setup / "proxy-location.json")
         proxy_metadata = private_read_json(setup / "nodemaven-proxy.json")
         targeting = proxy_metadata.get("targeting") or {}
@@ -323,9 +354,13 @@ def fleet_inventory():
         camera = private_read_json(avd_directory(avd) / "camera/native-camera.json")
         apps = assigned_apps.get(avd) or [PACKAGE_APPS.get(package, package) for package in
                                          certificate.get("authorizedSignupPackages", [])]
+        if not apps and provision_request.get("app") in APP_SCHEMAS:
+            apps = [APP_SCHEMAS[provision_request["app"]]["name"]]
         live_device = certificate.get("liveDevice") or {}
-        manufacturer = str(live_device.get("manufacturer") or "Samsung").title()
-        model_code = live_device.get("model") or "SM-S931B"
+        saved_device = private_read_json(setup / "profile/device-profile.json")
+        manufacturer = str(live_device.get("manufacturer") or
+                           saved_device.get("manufacturer") or "Android").title()
+        model_code = live_device.get("model") or saved_device.get("model") or "VPS phone"
         model_name = "Galaxy S25" if str(model_code).startswith("SM-S93") else str(model_code)
         device = live.get(avd)
         job = FLEET_JOBS.get(avd)
@@ -336,7 +371,12 @@ def fleet_inventory():
         camera_required = bool(camera.get("prepared_video"))
         runtime_ready = "Certified phone runtime restored and verified." in log
         camera_ready = "Native front Camera2 texture-motion check passed." in log
-        if device and runtime_ready and (not camera_required or camera_ready):
+        provisioning_phase = provisioning.get("phase")
+        if provisioning_phase == "ready" and device:
+            phase = "ready"
+        elif provisioning_phase and provisioning_phase not in {"ready"}:
+            phase = provisioning_phase
+        elif device and runtime_ready and (not camera_required or camera_ready):
             phase = "ready"
         elif device and runtime_ready and camera_required:
             phase = "checking-camera"
@@ -350,9 +390,11 @@ def fleet_inventory():
             phase = "failed"
         else:
             phase = "stopped"
+        certificate_ok = (certificate.get("avd") == avd and
+                          certificate.get("schema") in {None, 1, 2})
         checks = [
             {"key": "certificate", "label": "Setup certificate",
-             "ok": bool(certificate.get("avd") == avd)},
+             "ok": bool(certificate_ok)},
             {"key": "identity", "label": "Saved device identity",
              "ok": (setup / "profile/device-profile.json").is_file()},
             {"key": "proxy", "label": "Private proxy configuration",
@@ -373,7 +415,7 @@ def fleet_inventory():
         carrier = (targeting.get("isp") or {}).get("name") or proxy_metadata.get("isp")
         phones.append({
             "avd": avd, "serial": (device or {}).get("serial", ""), "phase": phase,
-            "certified": bool(certificate.get("avd") == avd),
+            "certified": bool(certificate_ok),
             "managed": managed_running, "exitCode": exit_code,
             "host": fleet_host(), "checks": checks, "apps": apps,
             "model": {"manufacturer": manufacturer, "name": model_name, "code": model_code},
@@ -386,6 +428,12 @@ def fleet_inventory():
                       "rotationAllowed": city_targeted, "radiusMiles": 100 if city_targeted else None},
             "startedAt": job.get("startedAt") if job else None,
             "log": log,
+            "provisioning": {
+                "stage": provisioning.get("stage"),
+                "progress": provisioning.get("progress"),
+                "message": provisioning.get("message"),
+                "updatedAt": provisioning.get("updatedAt"),
+            } if provisioning else None,
         })
     return phones
 
@@ -502,6 +550,150 @@ def replace_camera_video(avd, part):
     return {"avd": avd, "phase": "starting", "filename": filename, "media": media}
 
 
+def phone_creation_capabilities():
+    sdk = Path(os.environ.get("ANDROID_SDK_ROOT", "/opt/android-sdk"))
+    return {
+        "supported": (platform.system() == "Linux" and platform.machine().lower() in
+                      {"x86_64", "amd64"} and Path("/dev/kvm").exists()),
+        "host": f"{platform.system()} {platform.machine()}",
+        "proxyConfigured": NODEMAVEN_KEY.is_file(),
+        "systemImage": (sdk / "system-images/android-35/google_apis_playstore/x86_64/system.img").is_file(),
+        "defaultRam": 2048,
+        "defaultCores": 4,
+    }
+
+
+def multipart_fields(parts):
+    fields, files = {}, {}
+    for part in parts:
+        if part.get_content_disposition() != "form-data":
+            continue
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        if part.get_filename():
+            files[name] = part
+        else:
+            fields[name] = str(part.get_content()).strip()
+    return fields, files
+
+
+def save_nodemaven_key(value):
+    value = str(value or "").strip()
+    if not value:
+        return
+    if any(character.isspace() for character in value) or len(value) < 24:
+        raise ValueError("NodeMaven API key is invalid")
+    NODEMAVEN_KEY.parent.mkdir(parents=True, exist_ok=True)
+    temporary = NODEMAVEN_KEY.with_name(NODEMAVEN_KEY.name + "." + secrets.token_hex(4))
+    temporary.write_text(value + "\n")
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, NODEMAVEN_KEY)
+
+
+def start_phone_worker(avd, command, action):
+    folder = DATA / "provisioning" / avd
+    folder.mkdir(parents=True, exist_ok=True)
+    log_path = folder / "worker.log"
+    stream = open(log_path, "a", encoding="utf-8")
+    os.chmod(log_path, 0o600)
+    stream.write(f"\n{action} requested {now()} on {fleet_host()['name']}\n")
+    stream.flush()
+    try:
+        process = subprocess.Popen(
+            command, cwd=REPO, env=dict(os.environ, PYTHONUNBUFFERED="1"),
+            stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+    finally:
+        stream.close()
+    FLEET_JOBS[avd] = {
+        "process": process, "startedAt": now(), "log": str(log_path), "action": action}
+    return process
+
+
+def create_phone(parts):
+    capabilities = phone_creation_capabilities()
+    if not capabilities["supported"] or not capabilities["systemImage"]:
+        raise ValueError("This host is not ready for Linux x86-64 KVM phone creation")
+    fields, files = multipart_fields(parts)
+    app = fields.get("app", "")
+    if app not in APP_SCHEMAS:
+        raise ValueError("Choose Bumble, Tinder or Plenty of Fish")
+    region, city = fields.get("region", "").strip(), fields.get("city", "").strip()
+    if not region or not city or len(region) > 80 or len(city) > 80:
+        raise ValueError("Enter an exact US state and city")
+    name = fields.get("name", "").strip() or \
+        f"VPS_Phone_{datetime.now(timezone.utc):%Y%m%d}_{secrets.token_hex(4)}"
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,64}", name):
+        raise ValueError("Phone name must use 3–64 letters, numbers, dots, underscores or dashes")
+    if name in set(inventory()[1]) | provisioning_names():
+        raise ValueError("A phone or provisioning job already uses this name")
+    try:
+        ram, cores = int(fields.get("ram", "2048")), int(fields.get("cores", "4"))
+    except ValueError as exc:
+        raise ValueError("RAM and CPU values must be numbers") from exc
+    if not 1536 <= ram <= 4096 or not 2 <= cores <= 8:
+        raise ValueError("Use 1536–4096 MB RAM and 2–8 CPU cores")
+    save_nodemaven_key(fields.get("proxyApiKey"))
+    if not NODEMAVEN_KEY.is_file():
+        raise ValueError("Enter the NodeMaven API key for the first VPS phone")
+    video = files.get("cameraVideo")
+    if not video:
+        raise ValueError("Upload this phone’s camera video")
+    filename = Path(video.get_filename() or "camera-video").name
+    suffix = Path(filename).suffix.lower()
+    if video.get_content_type() not in VIDEO_TYPES or suffix not in {
+            ".mp4", ".mov", ".webm", ".m4v"}:
+        raise ValueError("Camera video must be MP4, MOV, M4V or WebM")
+    payload = video.get_payload(decode=True)
+    if not payload:
+        raise ValueError("Camera video is empty")
+    folder = DATA / "provisioning" / name
+    folder.mkdir(parents=True, exist_ok=False)
+    path = folder / f"camera-source{suffix}"
+    path.write_bytes(payload)
+    os.chmod(path, 0o600)
+    try:
+        verify_uploaded_video(path)
+        status_path = folder / "status.json"
+        status_path.write_text(json.dumps({
+            "avd": name, "phase": "queued", "stage": "queued", "progress": 1,
+            "message": "Waiting for the VPS provisioning worker", "updatedAt": now(),
+        }, indent=2) + "\n")
+        os.chmod(status_path, 0o600)
+        command = [
+            sys.executable, "-I", str(REPO / "provision_vps_phone.py"),
+            "--avd", name, "--data", str(DATA), "--app", app,
+            "--region", region, "--city", city, "--ram", str(ram),
+            "--cores", str(cores), "--camera-video", str(path),
+            "--proxy-key", str(NODEMAVEN_KEY),
+        ]
+        process = start_phone_worker(name, command, "phone-provisioning")
+    except Exception:
+        path.unlink(missing_ok=True)
+        try:
+            folder.rmdir()
+        except OSError:
+            pass
+        raise
+    return {"avd": name, "phase": "queued", "pid": process.pid}
+
+
+def resume_phone_setup(avd):
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", avd):
+        raise ValueError("Invalid phone name")
+    status, request = provisioning_record(avd)
+    if not request:
+        raise ValueError("No VPS provisioning record exists for this phone")
+    if status.get("phase") != "manual-required":
+        raise ValueError("This phone is not waiting for setup verification")
+    command = [
+        sys.executable, "-I", str(REPO / "provision_vps_phone.py"),
+        "--avd", avd, "--data", str(DATA), "--resume",
+    ]
+    process = start_phone_worker(avd, command, "phone-setup-resume")
+    return {"avd": avd, "phase": "checking", "pid": process.pid}
+
+
 def row_json(row):
     d = dict(row)
     for key in ("profile_json", "identity_json", "metadata_json"):
@@ -574,7 +766,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.json({"apps": APP_SCHEMAS, "creators": creators, "accounts": accounts,
                               "devices": devices, "avds": avds, "phoneProfiles": profiles,
                               "mediaPipeline": VARIANTS_PATH.is_file(),
-                              "phones": fleet_inventory(), "fleetHost": fleet_host()})
+                              "phones": fleet_inventory(), "fleetHost": fleet_host(),
+                              "phoneCreation": phone_creation_capabilities()})
         if parsed.path == "/api/phones":
             return self.json({"phones": fleet_inventory(), "host": fleet_host()})
         match = re.fullmatch(r"/api/assets/([a-zA-Z0-9_]+)", parsed.path)
@@ -678,6 +871,8 @@ class Handler(SimpleHTTPRequestHandler):
                         made.append({"id": account_id, "app": app, "identity": identity, "variants": generated})
                     db.commit()
                 return self.json({"accounts": made}, 201)
+            if parsed.path == "/api/phones":
+                return self.json(create_phone(self.read_multipart(MAX_VIDEO_UPLOAD)), 202)
             if parsed.path == "/api/discover":
                 data = self.read_json(); serial = re.fullmatch(r"[A-Za-z0-9._:-]+", str(data.get("serial", "")))
                 if not serial:
@@ -697,6 +892,9 @@ class Handler(SimpleHTTPRequestHandler):
                 avd, action = match.groups()
                 result = launch_phone(avd) if action == "launch" else stop_phone(avd)
                 return self.json(result, 202)
+            match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/resume-setup", parsed.path)
+            if match:
+                return self.json(resume_phone_setup(match.group(1)), 202)
             match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/camera-video", parsed.path)
             if match:
                 parts = [part for part in self.read_multipart(MAX_VIDEO_UPLOAD)

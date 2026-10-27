@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Creator Control</title><meta name="description" content="Prepare creator profiles and per-account camera media.">
-  <link rel="stylesheet" href="/styles.css?v=4">
+  <link rel="stylesheet" href="/styles.css?v=5">
 </head>
 <body>
   <div class="shell">
@@ -40,7 +40,7 @@
         <div class="bottom-bar"><div><b id="summary">Choose a creator and app to continue</b><small>Preparation never crosses SMS, CAPTCHA or identity checks.</small></div><button class="primary large" id="prepareButton">Prepare account set →</button></div>
       </section>
       <section id="phones" class="view">
-        <div class="toolbar fleet-toolbar"><div><p class="kicker">Managed phone fleet</p><p id="fleetHost">Current host</p></div><button class="ghost" id="refreshPhones">↻ Refresh status</button></div>
+        <div class="toolbar fleet-toolbar"><div><p class="kicker">Managed phone fleet</p><p id="fleetHost">Current host</p></div><div class="header-actions"><button class="ghost" id="refreshPhones">↻ Refresh status</button><button class="primary" id="newPhone">＋ New phone</button></div></div>
         <div class="fleet-summary" id="fleetSummary"></div>
         <div id="phoneList" class="phone-list"></div>
       </section>
@@ -69,5 +69,22 @@
       <div class="dialog-actions"><button value="cancel" class="ghost">Close</button><button type="button" id="saveCreatorChanges" class="primary">Save changes</button></div>
     </form>
   </dialog>
-  <script src="/app.js?v=4"></script>
+  <dialog id="phoneDialog" class="phone-dialog">
+    <form method="dialog">
+      <div class="dialog-head"><div><p class="kicker">VPS phone provisioning</p><h2>Create a new phone</h2></div><button value="cancel" class="icon-btn">×</button></div>
+      <div class="phone-form-grid">
+        <label>Phone name<input id="phoneName" placeholder="Leave blank for an automatic unique name"></label>
+        <label>App<select id="phoneApp"><option value="bumble">Bumble</option><option value="tinder">Tinder</option><option value="pof">Plenty of Fish</option></select></label>
+        <label>US state<input id="phoneRegion" value="Texas" placeholder="Exact NodeMaven state"></label>
+        <label>City<input id="phoneCity" value="Houston" placeholder="Exact NodeMaven city"></label>
+        <label>RAM<select id="phoneRam"><option value="2048" selected>2 GB</option><option value="3072">3 GB</option><option value="4096">4 GB</option></select></label>
+        <label>CPU cores<select id="phoneCores"><option value="2">2 cores</option><option value="4" selected>4 cores</option><option value="6">6 cores</option><option value="8">8 cores</option></select></label>
+      </div>
+      <label>NodeMaven API key <small id="proxyKeyHint">Saved privately on the VPS after the first use</small><input id="phoneProxyKey" type="password" autocomplete="off" placeholder="Required once"></label>
+      <label class="camera-upload">Per-phone camera video<input id="newPhoneVideo" type="file" accept="video/mp4,video/quicktime,video/webm,.m4v"><span>Choose MP4, MOV, M4V or WebM</span><small>Prepared crop-to-fill for the saved 3:4 Camera2 preview and verified after first boot.</small></label>
+      <div class="setup-boundary"><b>Visible checkpoint</b><span>The VPS creates the AVD, proxy, location, runtime and camera first. It then opens Google Play for you to sign in and install the selected app. Click “Verify setup” on the phone row afterward.</span></div>
+      <div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button type="button" id="createPhone" class="primary">Create phone</button></div>
+    </form>
+  </dialog>
+  <script src="/app.js?v=5"></script>
 </body></html>

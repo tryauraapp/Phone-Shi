@@ -25,3 +25,19 @@
 .schema-note{font-size:10px;color:var(--muted)}
 @media(max-width:900px){.editor-layout{grid-template-columns:1fr}.editor-media{border-left:0;border-top:1px solid var(--line);padding:22px 0 0}}
 @media(max-width:620px){.creator-editor{width:96vw}.photo-gallery{grid-template-columns:repeat(3,1fr)}}
+
+/* VPS phone creation. */
+.phone-dialog{width:min(680px,94vw)}
+.phone-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.phone-dialog label small{float:right;color:var(--muted);font-weight:500}
+.camera-upload{position:relative;display:flex!important;flex-direction:column;gap:5px;border:1px dashed #c6c9be;background:#f8f9f4;border-radius:11px;padding:16px;margin-top:16px!important;cursor:pointer}
+.camera-upload input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.camera-upload span{font-size:12px}
+.camera-upload small{float:none!important;font-size:9px}
+.setup-boundary{display:flex;gap:10px;background:#f1f5df;border-radius:11px;padding:13px;margin-top:15px;font-size:10px}
+.setup-boundary b{white-space:nowrap}.setup-boundary span{color:var(--muted);line-height:1.45}
+.provision-progress{height:5px;background:#e6e8df;border-radius:99px;margin-top:7px;overflow:hidden}
+.provision-progress i{display:block;height:100%;background:#9fc400;width:var(--progress);transition:width .25s}
+.phone-state.provisioning,.phone-state.queued,.phone-state.checking{background:#fff0bd;color:#765c00}
+.phone-state.manual-required{background:#e6e8ff;color:#444a88}
+@media(max-width:620px){.phone-form-grid{grid-template-columns:1fr}.setup-boundary{flex-direction:column}}
