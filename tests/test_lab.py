@@ -90,20 +90,21 @@ magisk() {
   printf '%s\n' "$*" >> "$TRACE"
   case "$1:$2" in
     --sqlite:SELECT*) echo "value=$ZYGISK_VALUE" ;;
-    --denylist:ls) echo 'dev.emulab.devicecheck|dev.emulab.devicecheck' ;;
+    --denylist:ls) [[ -n "$IN_LIST" ]] && echo 'com.example.testpkg|com.example.testpkg' ;;
+    --denylist:add*) IN_LIST=1 ;;
   esac
   return 0
 }
-source "$SERVICE" dev.emulab.devicecheck
+source "$SERVICE" com.example.testpkg
 '''
             env = dict(os.environ, SERVICE=str(ROOT/'device_root_isolation.sh'), TRACE=str(trace), ZYGISK_VALUE='1')
             result = subprocess.run(['/bin/bash'], input=wrapper, text=True, env=env, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             commands = trace.read_text()
             self.assertIn("VALUES ('zygisk',1)", commands)
-            self.assertIn('--denylist add dev.emulab.devicecheck dev.emulab.devicecheck:worker', commands)
+            self.assertIn('--denylist add com.example.testpkg', commands)
             self.assertIn('--denylist enable', commands)
-            self.assertIn('force-stop dev.emulab.devicecheck', commands)
+            self.assertIn('force-stop com.example.testpkg', commands)
             self.assertIn('reboot required', result.stdout)
             trace.write_text('')
             env['ZYGISK_VALUE'] = '0'

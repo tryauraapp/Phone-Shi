@@ -384,28 +384,35 @@ class EmulatorWindowCapture:
         path = Path(name)
         path.unlink()
         try:
-            res = subprocess.run(
-                ["/usr/sbin/screencapture", "-x", "-o", "-l", self.window_id, str(path)],
-                timeout=3,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            if res.returncode != 0 or not path.is_file():
-                subprocess.run(
-                    [
-                        self.adb,
-                        "-s",
-                        self.serial,
-                        "emu",
-                        "screenrecord",
-                        "screenshot",
-                        str(path),
-                    ],
-                    check=True,
-                    timeout=5,
+            try:
+                res = subprocess.run(
+                    ["/usr/sbin/screencapture", "-x", "-o", "-l", self.window_id, str(path)],
+                    timeout=3,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
+                ok = res.returncode == 0 and path.is_file()
+            except subprocess.TimeoutExpired:
+                ok = False
+            if not ok:
+                try:
+                    subprocess.run(
+                        [
+                            self.adb,
+                            "-s",
+                            self.serial,
+                            "emu",
+                            "screenrecord",
+                            "screenshot",
+                            str(path),
+                        ],
+                        check=True,
+                        timeout=5,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except Exception:
+                    return None
             return cv2.imread(str(path))
         finally:
             path.unlink(missing_ok=True)

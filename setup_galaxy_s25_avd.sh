@@ -83,6 +83,7 @@ QEMU_PROFILE=1
 SENSOR_LABELS=1
 FILE_ALIASES=1
 GRAPHICS_LABELS=1
+EMULATOR_HIDE=1
 CHECKER=1
 INTERACTIVE=-1
 DRY_RUN=0
@@ -117,7 +118,11 @@ LAB="$SCRIPT_DIR/galaxy_s25_avd_lab.sh"
 AVD_HOME="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
 SYSIMG_REL=system-images/android-35/google_apis_playstore/arm64-v8a
 SYSIMG="$SDK/$SYSIMG_REL"
-ROOTAVD_SRC="${ROOTAVD_DIR:-$HOME/Downloads/rootAVD}"
+if [[ -d "$SCRIPT_DIR/.local/rootAVD" ]]; then
+  ROOTAVD_SRC="${ROOTAVD_DIR:-$SCRIPT_DIR/.local/rootAVD}"
+else
+  ROOTAVD_SRC="${ROOTAVD_DIR:-$HOME/Downloads/rootAVD}"
+fi
 ROOTAVD_REPO="${ROOTAVD_REPO:-https://github.com/galihlasahido/rootAVD.git}"
 MAGISK_PKG=com.topjohnwu.magisk
 
@@ -159,6 +164,7 @@ while (($#)); do
     --keep-sensor-labels) SENSOR_LABELS=0 ;;
     --keep-file-paths) FILE_ALIASES=0; GRAPHICS_LABELS=0 ;;
     --keep-graphics-labels) GRAPHICS_LABELS=0 ;;
+    --no-emulator-hide) EMULATOR_HIDE=0 ;;
     --no-checker) CHECKER=0 ;;
     --interactive) INTERACTIVE=1 ;;
     --non-interactive) INTERACTIVE=0; YES=1 ;;
@@ -437,6 +443,10 @@ if ((GRAPHICS_LABELS)); then
   for f in build.sh rename_backend.py renderer_labels.c; do
     [[ -f "$SCRIPT_DIR/graphics-profile/$f" ]] || die "Missing graphics helper: $f"
   done
+fi
+if ((EMULATOR_HIDE)); then
+  [[ -f "$SCRIPT_DIR/emulator-hide/build.sh" ]] || die "Missing emulator-hide/build.sh helper."
+  [[ -f "$SCRIPT_DIR/emulator-hide/jni/hide.cpp" ]] || die "Missing emulator-hide/jni/hide.cpp source."
 fi
 ((!FILE_ALIASES)) || [[ -f "$SCRIPT_DIR/fixtures/qemu-metadata.rules" ]] || die "Missing QEMU metadata policy fixture."
 if ((CHECKER)); then
@@ -719,6 +729,23 @@ chmod 644 /data/local/tmp/s25-original-sensors.so' >>"$LOG" 2>&1 || die "Could n
   adb -s "$SERIAL" push "$WORK/sensors/s25_sensor_labels.zip" /data/local/tmp/s25_sensor_labels.zip >>"$LOG" 2>&1 || die "Could not copy sensor overlay."
   dsu 'magisk --install-module /data/local/tmp/s25_sensor_labels.zip' >>"$LOG" 2>&1 || die "Sensor overlay install failed."
   ok "Sensor labels patched in a Magisk overlay; original binary and hashes saved"
+fi
+
+if ((EMULATOR_HIDE)); then
+  step "Installing the emulator-hide Zygisk module"
+  if [[ ! -f "$SCRIPT_DIR/emulator-hide/module/zygisk/arm64-v8a.so" ]]; then
+    SERIAL="$SERIAL" bash "$SCRIPT_DIR/emulator-hide/build.sh" >>"$LOG" 2>&1 || die "Building emulator-hide Zygisk module failed."
+  fi
+  adb -s "$SERIAL" push "$SCRIPT_DIR/emulator-hide/module" /data/local/tmp/emulator_hide >>"$LOG" 2>&1 || die "Could not copy emulator-hide module."
+  dsu 'set -e
+mkdir -p /data/adb/modules/emulator_hide/zygisk
+cp /data/local/tmp/emulator_hide/module.prop /data/adb/modules/emulator_hide/
+cp /data/local/tmp/emulator_hide/zygisk/arm64-v8a.so /data/adb/modules/emulator_hide/zygisk/
+chmod 755 /data/adb/modules/emulator_hide /data/adb/modules/emulator_hide/zygisk
+chmod 644 /data/adb/modules/emulator_hide/module.prop /data/adb/modules/emulator_hide/zygisk/arm64-v8a.so
+rm -rf /data/local/tmp/emulator_hide
+magisk --sqlite "INSERT OR REPLACE INTO settings (key,value) VALUES (\x27zygisk\x27,1)"' >>"$LOG" 2>&1 || die "emulator-hide module install failed."
+  ok "emulator-hide Zygisk module installed and Zygisk enabled"
 fi
 
 source "$SCRIPT_DIR/provision_file_profiles.sh"
@@ -1054,8 +1081,12 @@ fi
 
 if ((CERTIFY_SETUP)); then
   step "Certifying the full phone setup before app signup"
-  GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK"
-              --package com.bumble.app --package com.tinder --package com.pof.android)
+  GUARD_ARGS=(--record --serial "$SERIAL" --avd "$NAME" --work "$WORK")
+  for p in com.bumble.app com.tinder com.pof.android; do
+    if [[ "$(adb -s "$SERIAL" shell pm path "$p" 2>/dev/null)" == package:* ]]; then
+      GUARD_ARGS+=(--package "$p")
+    fi
+  done
   if ((BUMBLE_SIGNUP)); then
     adb -s "$SERIAL" shell am force-stop com.bumble.app >>"$LOG" 2>&1
   fi

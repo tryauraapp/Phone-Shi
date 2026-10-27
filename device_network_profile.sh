@@ -35,4 +35,7 @@ while :; do
   i=$((i + 1)); [ "$i" -lt 30 ] || exit 1
   sleep 2
 done
-printf '%s network-profile: LTE-only; Wi-Fi disabled\n' "$(date '+%F %T')" >>"$D/boot.log"
+# Block UDP 443/80 (QUIC) so browsers and apps never bypass the TCP proxy via UDP.
+iptables -C OUTPUT -p udp --dport 443 -j DROP 2>/dev/null || iptables -I OUTPUT -p udp --dport 443 -j DROP
+iptables -C OUTPUT -p udp --dport 80 -j DROP 2>/dev/null || iptables -I OUTPUT -p udp --dport 80 -j DROP
+printf '%s network-profile: LTE-only; Wi-Fi disabled; QUIC blocked\n' "$(date '+%F %T')" >>"$D/boot.log"

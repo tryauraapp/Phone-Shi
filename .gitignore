@@ -36,6 +36,15 @@ __pycache__/
 !/pof-signup/observed-flow.json
 /models/*.tflite
 .venv/
+node_modules/
 *.mp4
 *.mov
+*.webm
+*.jpg
+*.jpeg
+*.png
+/photos/
+phone-bridge/.certs/
+emulator-hide/build/
+*.o
 

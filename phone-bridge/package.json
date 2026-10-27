@@ -1,0 +1,15 @@
+{
+  "name": "emu-phone-bridge",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "bun": "^1.4.4",
+    "http-proxy": "^1.18.1",
+    "qrcode": "^1.5.4",
+    "serve-emu": "latest",
+    "ws": "^8.18.3"
+  }
+}

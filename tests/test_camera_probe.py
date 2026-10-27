@@ -23,3 +23,12 @@ class DirectFrameTests(unittest.TestCase):
 
     def test_no_frames_is_failure(self):
         self.assertFalse(motion_summary([])['motion_verified'])
+
+    def test_preview_fps_uses_counter_deltas_over_the_observed_span(self):
+        rows = self.samples(list('abcdef'))
+        for index, row in enumerate(rows):
+            row['consumer_updates'] = 120 + index * 30
+        self.assertEqual(motion_summary(rows)['consumer_updates_per_second'], 30)
+
+    def test_missing_preview_counters_do_not_claim_a_frame_rate(self):
+        self.assertIsNone(motion_summary(self.samples(list('abcdef')))['consumer_updates_per_second'])

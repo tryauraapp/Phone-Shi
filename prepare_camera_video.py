@@ -64,6 +64,8 @@ def main():
                         help="0=top, 0.5=center, 1=bottom; defaults to saved framing")
     parser.add_argument("--fps", type=float,
                         help="resample to the phone camera's frame rate (e.g. 30); default keeps the source rate")
+    parser.add_argument("--hflip", action="store_true",
+                        help="horizontally mirror the source video before framing")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument('--codec', choices=['h264', 'vp9'], default='h264',
                         help='vp9/WebM is used by the native environment compatibility profile')
@@ -84,6 +86,8 @@ def main():
         # Resample before framing so the camera HAL receives frames at its own rate
         # instead of repeating 24 fps source frames unevenly at 30 fps.
         filters = f"fps={args.fps:g}," + filters
+    if args.hflip:
+        filters = "hflip," + filters
     source, output = args.video.expanduser().resolve(), args.output.expanduser().resolve()
     if not source.is_file():
         parser.error(f"source does not exist: {source}")

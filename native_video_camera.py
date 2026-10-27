@@ -5,6 +5,7 @@ import json
 from datetime import datetime, timezone
 import os
 import shutil
+import stat
 import struct
 import subprocess
 
@@ -144,7 +145,14 @@ def preflight(name, env, extra):
     path = Path(source[len("videofile:"):]).expanduser()
     if not path.is_absolute():
         path = Path.cwd() / path
-    if not path.is_file() or path.stat().st_size == 0:
+    try:
+        source_stat = path.stat()
+    except OSError as exc:
+        raise ValueError(f"Front-camera video is missing or unreadable: {path}") from exc
+    is_regular_video = stat.S_ISREG(source_stat.st_mode) and source_stat.st_size > 0
+    if stat.S_ISFIFO(source_stat.st_mode):
+        raise ValueError(f"Front-camera video must be seekable; named pipes can freeze the emulator: {path}")
+    if not is_regular_video:
         raise ValueError(f"Front-camera video is missing or empty: {path}")
     reject_experimental_engine(directory)
     settings = directory / "AVD.conf"

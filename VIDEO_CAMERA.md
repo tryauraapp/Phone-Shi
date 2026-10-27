@@ -162,6 +162,57 @@ emulated camera's 30 fps instead of repeating 24 fps frames.
 
 ## Swapping the clip on one phone
 
+### Physical Mac camera performance (27 October 2026)
+
+For the Tinder phone's physical FaceTime HD camera, `phone-bridge/run_mac_camera.py`
+resolves the actual FaceTime device and launches through `emulator_proxy.py`
+with `-camera-front webcam<N> -gpu host`. Do not substitute the enumerated
+iPhone continuity device or OBS camera. Keep the browser bridge in
+`EMU_LIVE_CAMERA=0` mode to prevent replacing that direct source.
+
+This is separate from the saved video playback recipe. On this Apple M3 Mac,
+automatic rendering selected swangle/SwiftShader and native camera delivery
+to Tinder was measured at 11.27–16.09 fps. Reducing browser display encoding
+to 960px/30fps yielded 14.71–16.46 fps. A two-second CPU sample confirmed
+software graphics in the emulator. An isolated `-gpu host` run selected
+Apple M3 / Metal, kept `-GLAsyncSwap`, and passed Camera2 SurfaceTexture motion
+at 1280x960: 66 distinct samples over 13.293 seconds, 400 consumer updates.
+Camera-service delivery counters measured 29.69–30.06 fps across three
+three-second intervals. Report: `.local/live-camera/facetime-hostgpu-probe/`.
+These are delivery/motion measurements, not proof of third-party biometric
+acceptance or a reason to change every AVD's renderer. No emulator binary,
+boot fixture or original media was modified for this test.
+
+### Browser live camera (27 October 2026)
+
+`phone-bridge/` can attach Safari's actual camera to a single AVD using native
+`videofile:` without OBS or a system-wide camera. Do not revive the original
+FIFO implementation: native `RawVideofileSource::Start` seeks, and its frame
+reads can block QEMU. `native_video_camera.py` now refuses named pipes.
+
+The replacement is a regular, fixed-size WebM file with independent VP9
+frames and a half-second native timeline. Each received frame updates every
+fixed-size cluster. The file stays seekable, so the normal native player can
+seek/loop without waiting on network input. It lives in a private temporary
+path without spaces: camera-service tokenization otherwise truncates a path
+at `EMU Testing`. Existing saved camera profiles/media remain unchanged.
+
+The bridge retains 3:4 crop-to-fill and the left-packed 640x480 canvas. Local
+preview mirroring does not change the camera data. Acknowledgements follow
+encoding and file update; Safari permits at most two frames in flight. Closing
+Safari's camera leaves browser control and the emulator running, and clears
+the native source to black. A source change requires one targeted restart;
+reconnecting to the same source does not.
+
+On `Galaxy_S25_20261027_tinder_f001699c`, a network diagnostic driving the
+actual Camera2 SurfaceTexture passed with 271 consumer updates, 22 distinct
+pixel samples, and 12.484 seconds observed. Report:
+`.local/live-camera/network-seekable-probe-final/report.json`.
+This establishes preview motion for that diagnostic, not end-to-end iPhone
+latency or acceptance by a third-party verification app. Test actual Safari
+capture separately after the user grants camera permission. Keep
+`-feature -GLAsyncSwap` enabled via the normal launcher.
+
 ```sh
 python3 swap_camera_video.py --status                                  # every phone's clip
 python3 swap_camera_video.py --avd Galaxy_S25_20261024_10f841ca --video /path/new.mp4 --restart

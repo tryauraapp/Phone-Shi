@@ -30,8 +30,13 @@ def motion_summary(rows):
     middle = (max(times) + min(times)) / 2 if times else 0
     early = {row['sha256'] for row, timestamp in zip(rows, times) if timestamp <= middle}
     late = {row['sha256'] for row, timestamp in zip(rows, times) if timestamp > middle}
+    updates = [row.get('consumer_updates') for row in rows]
+    consumer_fps = ((updates[-1] - updates[0]) / span if span and updates
+                    and all(isinstance(value, int) for value in (updates[0], updates[-1]))
+                    and updates[-1] >= updates[0] else None)
     return {'frames': len(rows), 'distinct_pixel_samples': len(hashes),
             'observed_span_seconds': round(span, 3),
+            'consumer_updates_per_second': round(consumer_fps, 3) if consumer_fps is not None else None,
             'motion_verified': span >= 4 and len(hashes) >= 3 and len(early) >= 2 and len(late) >= 2}
 
 

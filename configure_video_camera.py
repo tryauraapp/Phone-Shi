@@ -67,6 +67,8 @@ def main():
     parser.add_argument('--preview-method', choices=['camera2_reader', 'stock'], default='camera2_reader')
     parser.add_argument('--fps', type=float, default=30.0,
                         help='emulated phone camera frame rate; the clip is resampled to it (default 30)')
+    parser.add_argument('--hflip', action='store_true',
+                        help='horizontally mirror the source video before framing')
     args = parser.parse_args()
     native, prepare = sibling('native_video_camera'), sibling('prepare_camera_video')
     directory = native.avd_directory(args.avd, os.environ)
@@ -89,7 +91,7 @@ def main():
     prepare.framing_filter(preview, profile['canvas_size'], args.vertical_anchor)
     source_sha = digest(source)
     key = hashlib.sha256(json.dumps({'source': source_sha, 'preview': preview,
-        'anchor': args.vertical_anchor, 'fps': args.fps, 'profile': profile,
+        'anchor': args.vertical_anchor, 'fps': args.fps, 'hflip': args.hflip, 'profile': profile,
         'preparer': digest(ROOT / 'prepare_camera_video.py')}, sort_keys=True).encode()).hexdigest()[:24]
     folder = directory / 'camera'
     folder.mkdir(exist_ok=True)
@@ -109,10 +111,13 @@ def main():
                 raise RuntimeError('Saved original differs from its recorded checksum; refusing to overwrite it')
             if not output.exists():
                 staged_video = staging / 'prepared.webm'
-                subprocess.run([os.sys.executable, str(ROOT / 'prepare_camera_video.py'),
+                prep_cmd = [os.sys.executable, str(ROOT / 'prepare_camera_video.py'),
                     str(original), str(staged_video), '--codec', 'vp9',
                     '--preview-size', args.preview_size, '--vertical-anchor', str(args.vertical_anchor),
-                    '--fps', str(args.fps)], check=True)
+                    '--fps', str(args.fps)]
+                if args.hflip:
+                    prep_cmd.append('--hflip')
+                subprocess.run(prep_cmd, check=True)
                 media_record = json.loads(staged_video.with_suffix('.webm.json').read_text())
                 media_record['command'][-1] = str(output)
                 staged_manifest = staging / 'prepared.json'
@@ -138,7 +143,8 @@ def main():
             save(config, ini_values(config.read_text(), {'hw.camera.front': 'environment', 'hw.camera.back': back}))
             record = {'avd': args.avd, 'original': str(original), 'source_sha256': source_sha,
                 'prepared_video': str(output), 'preview_size': list(preview),
-                'vertical_anchor': args.vertical_anchor, 'fps': args.fps, 'backend': 'native_environment',
+                'vertical_anchor': args.vertical_anchor, 'fps': args.fps, 'hflip': args.hflip,
+                'backend': 'native_environment',
                 'codec': 'vp9', 'background_enabled': False, 'preview_method': args.preview_method,
                 'status': 'prepared_not_yet_verified'}
             save(folder / 'native-camera.json', json.dumps(record, indent=2) + '\n')

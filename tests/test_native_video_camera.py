@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import tempfile
 import unittest
 import struct
@@ -89,6 +90,18 @@ class NativeCameraTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 preflight('Test', {'ANDROID_AVD_HOME': folder}, [])
             self.assertFalse((avd / 'AVD.conf').exists())
+
+    @unittest.skipUnless(hasattr(os, 'mkfifo'), 'requires POSIX named pipes')
+    def test_named_pipe_is_rejected_before_it_can_freeze_the_phone(self):
+        with tempfile.TemporaryDirectory() as folder:
+            avd = Path(folder) / 'Test.avd'
+            avd.mkdir()
+            (avd / 'config.ini').write_text('hw.camera.front=emulated\n')
+            stream = Path(folder) / 'live-camera.webm'
+            os.mkfifo(stream)
+            with self.assertRaisesRegex(ValueError, 'must be seekable'):
+                preflight('Test', {'ANDROID_AVD_HOME': folder},
+                          ['-camera-front', 'videofile:' + str(stream)])
 
     def test_environment_video_front_camera_uses_its_scene_source(self):
         with tempfile.TemporaryDirectory() as folder:

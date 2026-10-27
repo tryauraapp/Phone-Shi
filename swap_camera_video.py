@@ -92,6 +92,7 @@ def main(argv=None):
     parser.add_argument('--video', type=Path, help='new clip (any ffmpeg-readable file)')
     parser.add_argument('--preview-size', default='1080x1440', help='app preview size, default S25 3:4')
     parser.add_argument('--fps', type=float, default=30.0, help='emulated camera frame rate')
+    parser.add_argument('--hflip', action='store_true', help='horizontally mirror the source video')
     parser.add_argument('--restart', action='store_true', help='close the phone first if it is running')
     parser.add_argument('--no-launch', action='store_true', help='only save the clip; do not start the phone')
     parser.add_argument('--face-track', action='store_true',
@@ -151,9 +152,11 @@ def main(argv=None):
         video = tracked_path
 
     print(f'Preparing {video.name} for {args.avd} ...', flush=True)
-    result = subprocess.run([sys.executable, '-I', str(ROOT / 'configure_video_camera.py'), '--avd', args.avd,
-                             '--video', str(video), '--preview-size', args.preview_size, '--fps', str(args.fps)],
-                            capture_output=True, text=True)
+    cfg_cmd = [sys.executable, '-I', str(ROOT / 'configure_video_camera.py'), '--avd', args.avd,
+               '--video', str(video), '--preview-size', args.preview_size, '--fps', str(args.fps)]
+    if args.hflip:
+        cfg_cmd.append('--hflip')
+    result = subprocess.run(cfg_cmd, capture_output=True, text=True)
     if result.returncode:
         sys.stderr.write(result.stderr)
         parser.exit(2, f'Could not prepare the clip for {args.avd}; its previous clip is unchanged.\n')

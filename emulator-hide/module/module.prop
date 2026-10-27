@@ -1,0 +1,6 @@
+id=emulator_hide
+name=Emulator Trace Hider (per-app)
+version=v1.0
+versionCode=1
+author=s25-avd-lab
+description=Hides QEMU/goldfish device nodes and artifacts from selected apps only, via Zygisk PLT hooks. Existence checks (access/stat/faccessat/readdir) return ENOENT for goldfish/qemu paths; the app's own GPU pipe open() is left intact so rendering still works. Non-target apps are untouched.

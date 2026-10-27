@@ -11,6 +11,18 @@ pm path "$package" | grep -q '^package:' || { echo "Not installed: $package" >&2
 # The host must reboot once after configuring all packages.
 magisk --sqlite "INSERT OR REPLACE INTO settings (key,value) VALUES ('zygisk',1)" >/dev/null
 magisk --sqlite "SELECT value FROM settings WHERE key='zygisk'" | grep -qx 'value=1'
+
+case "$package" in
+  com.bumble.app|com.tinder|com.pof.android|dev.emulab.devicecheck)
+    # These apps are handled by the emulator-hide Zygisk module, which hides root
+    # paths, Magisk binaries, and sanitizes proc mounts directly in-process.
+    # Adding them to Magisk DenyList causes Magisk to unload Zygisk modules,
+    # breaking emulator-hide. Ensure Zygisk is enabled and leave DenyList clean.
+    echo "Zygisk enabled; $package is protected by emulator-hide (DenyList bypassed)"
+    exit 0
+    ;;
+esac
+
 add_process() {
   if ! magisk --denylist ls | grep -qxF "$package|$1"; then
     magisk --denylist add "$package" "$1"
