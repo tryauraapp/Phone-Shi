@@ -44,6 +44,10 @@ def motion_summary(rows):
 
 
 def build_apk(sdk, output):
+    prebuilt = Path(os.environ.get(
+        'CAMERA_PROBE_APK', Path(__file__).resolve().parents[1] / '.local/prebuilt-camera-probe.apk'))
+    if prebuilt.is_file():
+        return prebuilt, hashlib.sha256(prebuilt.read_bytes()).hexdigest()[:16]
     tools = max((sdk / 'build-tools').iterdir(), key=revision)
     platform = max((sdk / 'platforms').iterdir(), key=revision) / 'android.jar'
     java = Path(os.environ.get('JAVA_HOME') or '/Applications/Android Studio.app/Contents/jbr/Contents/Home')
