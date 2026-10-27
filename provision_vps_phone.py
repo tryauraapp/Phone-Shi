@@ -379,6 +379,11 @@ def main():
     parser.add_argument("--camera-video")
     parser.add_argument("--proxy-key")
     args = parser.parse_args()
+    sdk = android_sdk_root()
+    os.environ.setdefault("ANDROID_SDK_ROOT", str(sdk))
+    os.environ["PATH"] = os.pathsep.join((
+        str(sdk / "platform-tools"), str(sdk / "emulator"),
+        str(sdk / "cmdline-tools/latest/bin"), os.environ.get("PATH", "")))
     if not args.resume:
         if not all((args.app, args.region, args.city, args.camera_video)):
             parser.error("creation requires --app, --region, --city and --camera-video")
