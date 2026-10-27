@@ -3,3 +3,25 @@
 /* Compact phone fleet rows. */
 .phone-list{gap:8px}.phone-row{background:white;border:1px solid var(--line);border-radius:13px;padding:13px 14px}.phone-main{display:grid;grid-template-columns:minmax(190px,1.35fr) minmax(135px,.85fr) minmax(90px,.55fr) minmax(180px,1.15fr) minmax(150px,1fr) auto;gap:14px;align-items:center}.phone-main>div{min-width:0}.phone-main small,.phone-main span{display:block;color:var(--muted);font-size:9px}.phone-main b{display:block;font-size:11px;margin:3px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.phone-identity .phone-state{display:inline-block;color:#60645b;margin-bottom:3px}.phone-identity .phone-state.ready{color:#52620e}.phone-identity .phone-state.failed{color:var(--danger)}.phone-identity .phone-state.running-unmanaged{color:#4d4d8e}.phone-actions{justify-content:flex-end}.phone-actions .primary,.phone-actions .ghost{padding:8px 10px;font-size:10px}.phone-lower{display:grid;grid-template-columns:minmax(320px,1fr) auto;gap:12px;align-items:center;border-top:1px solid #eeefe9;margin-top:10px;padding-top:10px}.video-drop{position:relative;display:flex;align-items:center;gap:9px;min-height:36px;border:1px dashed #c6cabd;background:#f8f9f4;border-radius:9px;padding:8px 11px;cursor:pointer}.video-drop input{position:absolute;inset:0;opacity:0;cursor:pointer}.video-drop span{font-size:10px;font-weight:800}.video-drop small{font-size:9px;color:var(--muted);margin-left:auto}.video-drop.drag,.video-drop.uploading{border-color:#7b941c;background:#f1fad1}.video-drop.disabled{opacity:.45;cursor:not-allowed}.video-drop.disabled input{cursor:not-allowed}.phone-lower details{min-width:105px}.phone-lower summary{font-size:10px;font-weight:800;cursor:pointer;color:#565a51}.phone-lower details[open]{grid-column:1/-1}.phone-lower pre{max-height:190px;overflow:auto;background:#1e201c;color:#dfe4d8;border-radius:9px;padding:11px;font-size:9px;line-height:1.5;white-space:pre-wrap}.phone-lower .check-grid{grid-template-columns:repeat(3,1fr)}
 @media(max-width:1180px){.phone-main{grid-template-columns:1.4fr 1fr .7fr 1.2fr auto}.phone-main>div:nth-child(5){display:none}}@media(max-width:900px){.phone-main{grid-template-columns:1.4fr 1fr 1fr auto}.phone-main>div:nth-child(4){display:none}.phone-lower{grid-template-columns:1fr}.video-drop small{display:none}}@media(max-width:620px){.phone-main{grid-template-columns:1fr auto}.phone-main>div:nth-child(2),.phone-main>div:nth-child(3){display:none}.phone-lower .check-grid{grid-template-columns:1fr}.video-drop{align-items:flex-start;flex-direction:column;gap:2px}}
+
+/* Creator profile workspace. */
+.person{display:block;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer;transition:border-color .15s,transform .15s,box-shadow .15s}
+.person:hover{border-color:#9da18f;transform:translateY(-1px);box-shadow:0 8px 22px #24271f0d}
+.creator-editor{width:min(1120px,94vw);max-height:92vh}
+.creator-editor form{display:flex;flex-direction:column;max-height:92vh}
+.creator-editor .dialog-head{flex:none}
+.editor-layout{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.7fr);gap:26px;overflow:auto;padding:2px}
+.editor-details,.editor-media{min-width:0}
+.editor-media{border-left:1px solid var(--line);padding-left:24px}
+.editor-section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:24px 0 12px}
+.editor-section-head:first-child{margin-top:0}
+.editor-section-head h3{font-size:16px;margin:4px 0}
+.photo-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+.photo-tile{position:relative;aspect-ratio:1;border-radius:10px;overflow:hidden;background:#eef0e8}
+.photo-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.photo-remove{position:absolute;right:6px;top:6px;width:26px;height:26px;border:0;border-radius:50%;background:#171714d9;color:white;cursor:pointer}
+.editor-dropzone{margin-top:12px;min-height:115px;justify-content:center}
+.creator-editor .dialog-actions{flex:none;border-top:1px solid var(--line);padding-top:16px}
+.schema-note{font-size:10px;color:var(--muted)}
+@media(max-width:900px){.editor-layout{grid-template-columns:1fr}.editor-media{border-left:0;border-top:1px solid var(--line);padding:22px 0 0}}
+@media(max-width:620px){.creator-editor{width:96vw}.photo-gallery{grid-template-columns:repeat(3,1fr)}}

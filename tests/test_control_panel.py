@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -15,6 +16,35 @@ SPEC.loader.exec_module(panel)
 
 
 class ControlPanelTests(unittest.TestCase):
+    def test_creator_schema_migrates_and_decodes_saved_profiles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "panel.sqlite3"
+            with sqlite3.connect(database) as legacy:
+                legacy.execute(
+                    "CREATE TABLE creators(id TEXT PRIMARY KEY,name TEXT NOT NULL,"
+                    "notes TEXT NOT NULL DEFAULT '',created_at TEXT NOT NULL)")
+                legacy.execute(
+                    "INSERT INTO creators VALUES(?,?,?,?)",
+                    ("creator_test", "Bella", "note", panel.now()))
+            old_data, old_db = panel.DATA, panel.DB
+            panel.DATA, panel.DB = Path(directory), database
+            try:
+                with panel.connect() as db:
+                    columns = {row["name"] for row in db.execute("PRAGMA table_info(creators)")}
+                    creator = panel.row_json(
+                        db.execute("SELECT * FROM creators WHERE id='creator_test'").fetchone())
+            finally:
+                panel.DATA, panel.DB = old_data, old_db
+            self.assertIn("profiles_json", columns)
+            self.assertEqual(creator["profiles"], {})
+
+    def test_creator_row_decodes_profiles_by_app(self):
+        row = {"id": "creator_test", "profiles_json": json.dumps({
+            "tinder": {"relationship_goal": "Long-term partner"}})}
+        self.assertEqual(
+            panel.row_json(row)["profiles"]["tinder"]["relationship_goal"],
+            "Long-term partner")
+
     def test_s25_identity_matches_phone_and_keeps_home_city(self):
         location = {"label": "Miami, Florida, United States", "latitude": 25.77,
                     "longitude": -80.21, "timezone": "America/New_York"}

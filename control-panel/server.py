@@ -132,7 +132,8 @@ def connect():
     db.executescript("""
     PRAGMA foreign_keys=ON;
     CREATE TABLE IF NOT EXISTS creators(
-      id TEXT PRIMARY KEY, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);
+      id TEXT PRIMARY KEY, name TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '',
+      profiles_json TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS assets(
       id TEXT PRIMARY KEY, creator_id TEXT NOT NULL REFERENCES creators(id) ON DELETE CASCADE,
       name TEXT NOT NULL, mime TEXT NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -145,6 +146,10 @@ def connect():
       asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE, kind TEXT NOT NULL,
       path TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL);
     """)
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(creators)")}
+    if "profiles_json" not in columns:
+        db.execute("ALTER TABLE creators ADD COLUMN profiles_json TEXT NOT NULL DEFAULT '{}'")
+        db.commit()
     return db
 
 
@@ -502,6 +507,8 @@ def row_json(row):
     for key in ("profile_json", "identity_json", "metadata_json"):
         if key in d:
             d[key[:-5]] = json.loads(d.pop(key))
+    if "profiles_json" in d:
+        d["profiles"] = json.loads(d.pop("profiles_json") or "{}")
     return d
 
 
@@ -570,6 +577,22 @@ class Handler(SimpleHTTPRequestHandler):
                               "phones": fleet_inventory(), "fleetHost": fleet_host()})
         if parsed.path == "/api/phones":
             return self.json({"phones": fleet_inventory(), "host": fleet_host()})
+        match = re.fullmatch(r"/api/assets/([a-zA-Z0-9_]+)", parsed.path)
+        if match:
+            with connect() as db:
+                row = db.execute("SELECT path,mime FROM assets WHERE id=?", (match.group(1),)).fetchone()
+            if not row:
+                return self.error_json(404, "Photo not found")
+            path = Path(row["path"]).resolve()
+            uploads = UPLOADS.resolve()
+            if uploads not in path.parents or not path.is_file():
+                return self.error_json(404, "Photo not found")
+            data = path.read_bytes()
+            self.send_response(200); self.send_header("Content-Type", row["mime"])
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "private, max-age=300")
+            self.end_headers(); self.wfile.write(data)
+            return
         match = re.fullmatch(r"/api/files/([a-zA-Z0-9_]+)", parsed.path)
         if match:
             with connect() as db:
@@ -596,7 +619,8 @@ class Handler(SimpleHTTPRequestHandler):
                     raise ValueError("Creator name is required")
                 cid = "creator_" + secrets.token_hex(6)
                 with connect() as db:
-                    db.execute("INSERT INTO creators VALUES(?,?,?,?)", (cid, name, str(data.get("notes", "")), now()))
+                    db.execute("INSERT INTO creators(id,name,notes,profiles_json,created_at) VALUES(?,?,?,?,?)",
+                               (cid, name, str(data.get("notes", "")), "{}", now()))
                     db.commit()
                 return self.json({"id": cid, "name": name}, 201)
             match = re.fullmatch(r"/api/creators/([a-zA-Z0-9_]+)/photos", parsed.path)
@@ -685,6 +709,65 @@ class Handler(SimpleHTTPRequestHandler):
             return self.error_json(400, str(exc))
         except subprocess.CalledProcessError:
             return self.error_json(409, "The requested emulator operation failed")
+        except Exception as exc:
+            self.log_error("%s", exc)
+            return self.error_json(500, str(exc))
+
+    def do_PATCH(self):
+        parsed = urlparse(self.path)
+        if not self.auth_ok():
+            return self.error_json(401, "Control token required")
+        try:
+            match = re.fullmatch(r"/api/creators/([a-zA-Z0-9_]+)", parsed.path)
+            if not match:
+                return self.error_json(404, "Unknown API route")
+            data = self.read_json()
+            name = str(data.get("name", "")).strip()
+            if not name:
+                raise ValueError("Creator name is required")
+            profiles = data.get("profiles") or {}
+            if not isinstance(profiles, dict) or any(
+                    app not in APP_SCHEMAS or not isinstance(values, dict)
+                    for app, values in profiles.items()):
+                raise ValueError("Creator profile answers are invalid")
+            with connect() as db:
+                result = db.execute(
+                    "UPDATE creators SET name=?,notes=?,profiles_json=? WHERE id=?",
+                    (name, str(data.get("notes", "")), json.dumps(profiles), match.group(1)))
+                if not result.rowcount:
+                    return self.error_json(404, "Creator not found")
+                db.commit()
+            return self.json({"id": match.group(1), "name": name, "profiles": profiles})
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self.error_json(400, str(exc))
+        except Exception as exc:
+            self.log_error("%s", exc)
+            return self.error_json(500, str(exc))
+
+    def do_DELETE(self):
+        parsed = urlparse(self.path)
+        if not self.auth_ok():
+            return self.error_json(401, "Control token required")
+        match = re.fullmatch(
+            r"/api/creators/([a-zA-Z0-9_]+)/photos/([a-zA-Z0-9_]+)", parsed.path)
+        if not match:
+            return self.error_json(404, "Unknown API route")
+        cid, aid = match.groups()
+        try:
+            with connect() as db:
+                row = db.execute(
+                    "SELECT path FROM assets WHERE id=? AND creator_id=?", (aid, cid)).fetchone()
+                if not row:
+                    return self.error_json(404, "Photo not found")
+                if db.execute("SELECT 1 FROM variants WHERE asset_id=? LIMIT 1", (aid,)).fetchone():
+                    return self.error_json(
+                        409, "This photo is already part of a prepared account and cannot be removed")
+                db.execute("DELETE FROM assets WHERE id=? AND creator_id=?", (aid, cid))
+                db.commit()
+            path = Path(row["path"]).resolve()
+            if UPLOADS.resolve() in path.parents:
+                path.unlink(missing_ok=True)
+            return self.json({"deleted": aid})
         except Exception as exc:
             self.log_error("%s", exc)
             return self.error_json(500, str(exc))

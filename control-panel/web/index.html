@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Creator Control</title><meta name="description" content="Prepare creator profiles and per-account camera media.">
-  <link rel="stylesheet" href="/styles.css?v=3">
+  <link rel="stylesheet" href="/styles.css?v=4">
 </head>
 <body>
   <div class="shell">
@@ -49,5 +49,25 @@
     </main>
   </div>
   <dialog id="creatorDialog"><form method="dialog"><div class="dialog-head"><div><p class="kicker">New record</p><h2>Add a creator</h2></div><button value="cancel" class="icon-btn">×</button></div><label>Display name<input id="creatorName" placeholder="e.g. Maya" autofocus></label><label>Internal notes<textarea id="creatorNotes" placeholder="Optional notes — never shown in app"></textarea></label><div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button id="saveCreator" value="default" class="primary">Create creator</button></div></form></dialog>
-  <script src="/app.js?v=3"></script>
+  <dialog id="creatorEditor" class="creator-editor">
+    <form method="dialog">
+      <div class="dialog-head"><div><p class="kicker">Creator workspace</p><h2 id="editorTitle">Edit creator</h2></div><button value="cancel" class="icon-btn">×</button></div>
+      <div class="editor-layout">
+        <section class="editor-details">
+          <label>Display name<input id="editorName"></label>
+          <label>Internal notes<textarea id="editorNotes" placeholder="Private notes for your team"></textarea></label>
+          <div class="editor-section-head"><div><p class="kicker">Saved onboarding answers</p><h3>Profile information</h3></div><button type="button" class="shuffle" id="editorRandomize">↻ Randomize empty</button></div>
+          <div id="editorAppTabs" class="tabs"></div>
+          <div id="editorQuestions"></div>
+        </section>
+        <section class="editor-media">
+          <div class="editor-section-head"><div><p class="kicker">Private source media</p><h3>Photos</h3></div><span class="pill" id="editorPhotoCount">0 photos</span></div>
+          <div id="editorGallery" class="photo-gallery"></div>
+          <label id="editorDropzone" class="dropzone editor-dropzone"><input id="editorPhotoInput" type="file" accept="image/jpeg,image/png,image/webp,image/heic" multiple><span class="upload-icon">↥</span><b>Add photos</b><small>Drop files here or click to choose</small></label>
+        </section>
+      </div>
+      <div class="dialog-actions"><button value="cancel" class="ghost">Close</button><button type="button" id="saveCreatorChanges" class="primary">Save changes</button></div>
+    </form>
+  </dialog>
+  <script src="/app.js?v=4"></script>
 </body></html>
