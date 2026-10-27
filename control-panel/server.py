@@ -49,8 +49,16 @@ NODEMAVEN_KEY = DATA / "secrets" / "nodemaven-api-key"
 IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/heic": ".heic"}
 VIDEO_TYPES = {"video/mp4": ".mp4", "video/quicktime": ".mov", "video/webm": ".webm",
                "video/x-m4v": ".m4v", "application/octet-stream": ""}
-PACKAGE_APPS = {"com.bumble.app": "Bumble", "com.tinder": "Tinder",
-                "com.pof.android": "Plenty of Fish"}
+PACKAGE_APPS = {
+    "com.bumble.app": "Bumble", "com.tinder": "Tinder",
+    "com.pof.android": "Plenty of Fish", "co.hinge.app": "Hinge",
+    "com.okcupid.okcupid": "OkCupid", "com.match.android.matchmobile": "Match.com",
+    "com.eharmony": "eHarmony", "io.cmbus.app": "Coffee Meets Bagel",
+    "com.facebook.katana": "Facebook Dating", "co.feeld": "Feeld",
+    "com.zoosk.zoosk": "Zoosk", "com.badoo.mobile": "Badoo",
+    "com.elitesingles.dating": "EliteSingles", "com.hily.app": "Hily",
+    "com.ftw_and_co.happn": "Happn",
+}
 FLEET_JOBS = {}
 
 
@@ -120,6 +128,45 @@ APP_SCHEMAS = {
         ],
     },
 }
+
+
+def starter_schema(name, color, note=""):
+    """Profile storage for apps whose live onboarding is not yet reviewed."""
+    return {
+        "name": name, "color": color, "status": "review",
+        "note": note or (
+            "Starter fields only. Inspect the live onboarding before recording exact choices; "
+            "randomization is limited to reviewed, non-identity options."),
+        "questions": [
+            question("first_name", "First name", kind="text"),
+            question("birthday", "Birthday", kind="date"),
+            question("gender", "Gender", kind="live"),
+            question("show_gender", "Show gender on profile", ["Yes", "No"]),
+            question("relationship_goal", "Relationship goal", kind="live"),
+            question("height", "Height", kind="live"),
+            question("interests", "Interests", kind="live", multiple=True),
+            question("bio", "About me", kind="textarea"),
+        ],
+    }
+
+
+APP_SCHEMAS.update({
+    "hinge": starter_schema("Hinge", "#7D56F4"),
+    "okcupid": starter_schema("OkCupid", "#246BFE"),
+    "match": starter_schema("Match.com", "#1676D2"),
+    "eharmony": starter_schema("eHarmony", "#6E44FF"),
+    "coffee-meets-bagel": starter_schema("Coffee Meets Bagel", "#D97745"),
+    "facebook-dating": starter_schema(
+        "Facebook Dating", "#1877F2",
+        "Facebook Dating is inside the Facebook app. Facebook login and opening Dating are "
+        "manual checkpoints before its onboarding can be reviewed."),
+    "feeld": starter_schema("Feeld", "#D95C4F"),
+    "zoosk": starter_schema("Zoosk", "#36A9E1"),
+    "badoo": starter_schema("Badoo", "#783BF9"),
+    "elitesingles": starter_schema("EliteSingles", "#8E744D"),
+    "hily": starter_schema("Hily", "#A94CFF"),
+    "happn": starter_schema("Happn", "#00AFC7"),
+})
 
 
 def now():
@@ -617,7 +664,7 @@ def create_phone(parts):
     fields, files = multipart_fields(parts)
     app = fields.get("app", "")
     if app not in APP_SCHEMAS:
-        raise ValueError("Choose Bumble, Tinder or Plenty of Fish")
+        raise ValueError("Choose a supported app")
     region, city = fields.get("region", "").strip(), fields.get("city", "").strip()
     if not region or not city or len(region) > 80 or len(city) > 80:
         raise ValueError("Enter an exact US state and city")
@@ -770,6 +817,24 @@ class Handler(SimpleHTTPRequestHandler):
                               "phoneCreation": phone_creation_capabilities()})
         if parsed.path == "/api/phones":
             return self.json({"phones": fleet_inventory(), "host": fleet_host()})
+        match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/screen\.png", parsed.path)
+        if match:
+            avd = match.group(1)
+            device = next((item for item in inventory()[0] if item.get("avd") == avd), None)
+            if not device:
+                return self.error_json(404, "Phone is not running")
+            result = subprocess.run(
+                ["adb", "-s", device["serial"], "exec-out", "screencap", "-p"],
+                capture_output=True, timeout=12, check=True)
+            if not result.stdout.startswith(b"\x89PNG\r\n\x1a\n"):
+                return self.error_json(409, "Phone screen capture was unavailable")
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(result.stdout)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(result.stdout)
+            return
         match = re.fullmatch(r"/api/assets/([a-zA-Z0-9_]+)", parsed.path)
         if match:
             with connect() as db:
@@ -892,6 +957,26 @@ class Handler(SimpleHTTPRequestHandler):
                 avd, action = match.groups()
                 result = launch_phone(avd) if action == "launch" else stop_phone(avd)
                 return self.json(result, 202)
+            match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/input", parsed.path)
+            if match:
+                avd = match.group(1)
+                device = next((item for item in inventory()[0] if item.get("avd") == avd), None)
+                if not device:
+                    raise ValueError("Phone is not running")
+                data = self.read_json()
+                action = data.get("action")
+                if action == "tap":
+                    x, y = int(data.get("x", -1)), int(data.get("y", -1))
+                    if not 0 <= x <= 4096 or not 0 <= y <= 4096:
+                        raise ValueError("Tap coordinates are outside the phone screen")
+                    command = ["adb", "-s", device["serial"], "shell", "input", "tap", str(x), str(y)]
+                elif action in {"back", "home", "recent"}:
+                    key = {"back": "4", "home": "3", "recent": "187"}[action]
+                    command = ["adb", "-s", device["serial"], "shell", "input", "keyevent", key]
+                else:
+                    raise ValueError("Unsupported phone input")
+                subprocess.run(command, capture_output=True, timeout=10, check=True)
+                return self.json({"avd": avd, "action": action})
             match = re.fullmatch(r"/api/phones/([A-Za-z0-9._-]+)/resume-setup", parsed.path)
             if match:
                 return self.json(resume_phone_setup(match.group(1)), 202)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Creator Control</title><meta name="description" content="Prepare creator profiles and per-account camera media.">
-  <link rel="stylesheet" href="/styles.css?v=5">
+  <link rel="stylesheet" href="/styles.css?v=6">
 </head>
 <body>
   <div class="shell">
@@ -40,7 +40,7 @@
         <div class="bottom-bar"><div><b id="summary">Choose a creator and app to continue</b><small>Preparation never crosses SMS, CAPTCHA or identity checks.</small></div><button class="primary large" id="prepareButton">Prepare account set →</button></div>
       </section>
       <section id="phones" class="view">
-        <div class="toolbar fleet-toolbar"><div><p class="kicker">Managed phone fleet</p><p id="fleetHost">Current host</p></div><div class="header-actions"><button class="ghost" id="refreshPhones">↻ Refresh status</button><button class="primary" id="newPhone">＋ New phone</button></div></div>
+        <div class="toolbar fleet-toolbar"><div><p class="kicker">Managed phone fleet</p><p id="fleetHost">Current host</p></div><div class="header-actions"><button class="ghost" id="toggleLiveViews">Live views: off</button><button class="ghost" id="refreshPhones">↻ Refresh status</button><button class="primary" id="newPhone">＋ New phone</button></div></div>
         <div class="fleet-summary" id="fleetSummary"></div>
         <div id="phoneList" class="phone-list"></div>
       </section>
@@ -74,7 +74,7 @@
       <div class="dialog-head"><div><p class="kicker">VPS phone provisioning</p><h2>Create a new phone</h2></div><button value="cancel" class="icon-btn">×</button></div>
       <div class="phone-form-grid">
         <label>Phone name<input id="phoneName" placeholder="Leave blank for an automatic unique name"></label>
-        <label>App<select id="phoneApp"><option value="bumble">Bumble</option><option value="tinder">Tinder</option><option value="pof">Plenty of Fish</option></select></label>
+        <label>App<select id="phoneApp"></select></label>
         <label>US state<input id="phoneRegion" value="Texas" placeholder="Exact NodeMaven state"></label>
         <label>City<input id="phoneCity" value="Houston" placeholder="Exact NodeMaven city"></label>
         <label>RAM<select id="phoneRam"><option value="2048" selected>2 GB</option><option value="3072">3 GB</option><option value="4096">4 GB</option></select></label>
@@ -86,5 +86,12 @@
       <div class="dialog-actions"><button value="cancel" class="ghost">Cancel</button><button type="button" id="createPhone" class="primary">Create phone</button></div>
     </form>
   </dialog>
-  <script src="/app.js?v=5"></script>
+  <dialog id="phoneViewer" class="phone-viewer">
+    <form method="dialog">
+      <div class="dialog-head"><div><p class="kicker">Interactive live view</p><h2 id="viewerTitle">Phone</h2></div><button value="cancel" class="icon-btn">×</button></div>
+      <div class="viewer-stage"><img id="viewerImage" alt="Live Android phone screen"></div>
+      <div class="viewer-actions"><button type="button" class="ghost viewer-key" data-key="back">← Back</button><button type="button" class="ghost viewer-key" data-key="home">Home</button><button type="button" class="ghost viewer-key" data-key="recent">Recent</button><span>Click the screen to tap that phone.</span></div>
+    </form>
+  </dialog>
+  <script src="/app.js?v=6"></script>
 </body></html>

@@ -41,3 +41,14 @@
 .phone-state.provisioning,.phone-state.queued,.phone-state.checking{background:#fff0bd;color:#765c00}
 .phone-state.manual-required{background:#e6e8ff;color:#444a88}
 @media(max-width:620px){.phone-form-grid{grid-template-columns:1fr}.setup-boundary{flex-direction:column}}
+
+/* Optional per-phone live views and direct input. */
+.phone-preview{width:62px;height:92px;border:1px solid var(--line);border-radius:8px;background:#171914;overflow:hidden;padding:0;cursor:pointer}
+.phone-preview img{width:100%;height:100%;object-fit:cover;display:block}
+.phone-main:has(.phone-preview){grid-template-columns:62px minmax(170px,1.2fr) minmax(120px,.8fr) minmax(90px,.5fr) minmax(160px,1fr) minmax(135px,.9fr) auto}
+.phone-viewer{width:min(520px,94vw)}
+.phone-viewer form{padding:18px}
+.viewer-stage{display:flex;justify-content:center;background:#111;border-radius:12px;overflow:hidden;min-height:500px}
+.viewer-stage img{display:block;max-height:72vh;max-width:100%;object-fit:contain;cursor:crosshair}
+.viewer-actions{display:flex;gap:8px;align-items:center;margin-top:12px}
+.viewer-actions span{margin-left:auto;color:var(--muted);font-size:9px}

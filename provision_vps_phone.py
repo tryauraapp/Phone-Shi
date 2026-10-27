@@ -33,6 +33,18 @@ APP_PACKAGES = {
     "bumble": "com.bumble.app",
     "tinder": "com.tinder",
     "pof": "com.pof.android",
+    "hinge": "co.hinge.app",
+    "okcupid": "com.okcupid.okcupid",
+    "match": "com.match.android.matchmobile",
+    "eharmony": "com.eharmony",
+    "coffee-meets-bagel": "io.cmbus.app",
+    "facebook-dating": "com.facebook.katana",
+    "feeld": "co.feeld",
+    "zoosk": "com.zoosk.zoosk",
+    "badoo": "com.badoo.mobile",
+    "elitesingles": "com.elitesingles.dating",
+    "hily": "com.hily.app",
+    "happn": "com.ftw_and_co.happn",
 }
 IMAGE = "system-images;android-35;google_apis_playstore;x86_64"
 

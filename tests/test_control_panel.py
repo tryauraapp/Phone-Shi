@@ -81,7 +81,12 @@ class ControlPanelTests(unittest.TestCase):
         self.assertEqual(identity["sw"], [["2000-01-01T00:00:00+00:00", "S931BXXS4AYF1"]])
 
     def test_reviewed_apps_expose_multiselect_and_randomizable_choices(self):
-        self.assertEqual(set(panel.APP_SCHEMAS), {"bumble", "tinder", "pof"})
+        self.assertTrue({"bumble", "tinder", "pof"}.issubset(panel.APP_SCHEMAS))
+        self.assertTrue({
+            "hinge", "okcupid", "match", "eharmony", "coffee-meets-bagel",
+            "facebook-dating", "feeld", "zoosk", "badoo", "elitesingles",
+            "hily", "happn",
+        }.issubset(panel.APP_SCHEMAS))
         bumble = {q["key"]: q for q in panel.APP_SCHEMAS["bumble"]["questions"]}
         tinder = {q["key"]: q for q in panel.APP_SCHEMAS["tinder"]["questions"]}
         self.assertTrue(bumble["interests"]["multiple"])

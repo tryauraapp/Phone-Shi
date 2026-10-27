@@ -14,6 +14,18 @@ APPS = {
     'bumble': (PACKAGE, 'Bumble', 'Bumble Dating App', 'Bumble'),
     'tinder': ('com.tinder', 'Tinder', 'Tinder', 'Tinder'),
     'pof': ('com.pof.android', 'Plenty of Fish', 'Plenty of Fish', 'POF'),
+    'hinge': ('co.hinge.app', 'Hinge', 'Hinge Dating App', 'Hinge'),
+    'okcupid': ('com.okcupid.okcupid', 'OkCupid', 'OkCupid', 'OkCupid'),
+    'match': ('com.match.android.matchmobile', 'Match', 'Match Dating', 'Match'),
+    'eharmony': ('com.eharmony', 'eharmony', 'eharmony', 'eharmony'),
+    'coffee-meets-bagel': ('io.cmbus.app', 'Coffee Meets Bagel', 'Coffee Meets Bagel', 'Coffee Meets Bagel'),
+    'facebook-dating': ('com.facebook.katana', 'Facebook', 'Facebook', 'Facebook'),
+    'feeld': ('co.feeld', 'Feeld', 'Feeld', 'Feeld'),
+    'zoosk': ('com.zoosk.zoosk', 'Zoosk', 'Zoosk', 'Zoosk'),
+    'badoo': ('com.badoo.mobile', 'Badoo', 'Badoo', 'Badoo'),
+    'elitesingles': ('com.elitesingles.dating', 'EliteSingles', 'EliteSingles', 'EliteSingles'),
+    'hily': ('com.hily.app', 'Hily', 'Hily Dating', 'Hily'),
+    'happn': ('com.ftw_and_co.happn', 'happn', 'happn', 'happn'),
 }
 
 
