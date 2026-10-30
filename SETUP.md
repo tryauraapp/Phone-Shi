@@ -1,5 +1,11 @@
 For prerequisites, a fresh clone, private local inputs, and agent instructions, start with [README.md](README.md).
 
+For the current **VPS Android 17** workflow, use the
+[complete standard phone setup](PHONE_SETUP_STANDARD.md) and
+`setup_vps_phone.py create`. Its versioned profile includes all 34 combined
+stages and the compatible original battery, data, display and identity settings.
+The instructions below describe the separate **legacy macOS Android 15** workflow.
+
 ## Device not found on another Mac
 
 Use a native Apple Silicon terminal. Install Android Studio and select the

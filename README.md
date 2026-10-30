@@ -5,10 +5,18 @@ profile, a private Magisk-patched ramdisk, local diagnostics, optional app
 installation, and a host-side authenticated HTTP proxy. The project also
 includes an interactive Bumble onboarding helper.
 
-The guest remains an Android 15 / API 35 Google Play ARM64 emulator. The
+The macOS guest remains an Android 15 / API 35 Google Play ARM64 emulator. The
 Samsung labels and simulated telemetry are lab fixtures; they do not provide
 Samsung firmware, hardware attestation, a locked bootloader, a Play Integrity
 pass, or guaranteed app acceptance.
+
+For new VPS phones, use the [complete standard phone setup](PHONE_SETUP_STANDARD.md):
+34 stages, rootless Android 17 / API 37 x86_64, an app-visible S25 identity,
+compatible original settings,
+and persistent unique identifiers. Its saved profile is `phone_setup_standard.json`
+and its entry point is `setup_vps_phone.py create`. See also
+[VPS serial and synthetic IMEI details](LINUX_AVD_IDENTITY.md).
+The [Android 17 S25 profile](S25_ANDROID17.md) documents its private product image.
 
 ## Host requirements
 

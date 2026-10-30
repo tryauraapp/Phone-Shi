@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "id": "vps-android17-s25-v2",
+  "display_name": "Standard VPS phone setup",
+  "platform": "linux-x86_64",
+  "platform_profile": {
+    "id": "s25-android17-v2",
+    "asset": "platform-profiles/s25-android17-v2/system.img",
+    "sha256": "1dc01026cc5065aee0074cd40cb834b12256f3dd6e17315e7c1a99c3d48496da",
+    "identity": {"brand": "samsung", "manufacturer": "samsung", "model": "SM-S931B", "name": "pa1qxxx", "device": "pa1q"}
+  },
+  "image": "system-images/android-37.0/google_apis_playstore/x86_64",
+  "image_sha256": {
+    "system.img": "11efb3b1510ec16445a41366d539541ac830c14ba3e7f7d44926370e3c02ec62",
+    "vendor.img": "c48efbd2497b0915563f651da0dbe71df8932eea4810f84a207d2678c0c173a8",
+    "ramdisk.img": "0f2e694d5a46e4dd8cd92a62bbfb7f1c4de454348fac21104a6c7e140ed989a7",
+    "kernel-ranchu": "b044f78db74915d62f87d70824538e6061c923883c808af88b905af41cee12be"
+  },
+  "sdk_engine_sha256": {
+    "qemu-system-x86_64": "b8f1576c0052ddd2f05771b0975b5ea1b2d4262d1893243a03b06546e24de057",
+    "qemu-system-x86_64-headless": "abb80393dabc80f419b180c2d4db4d2249e1499262a71106bff597d39e7abf11"
+  },
+  "resources": {"cores": 4, "ram_mb": 4096, "data_gb": 6, "width": 1080, "height": 2340, "density": 416},
+  "system_settings": {
+    "accelerometer_rotation": "0", "user_rotation": "0",
+    "screen_brightness_mode": "0", "screen_brightness": "102",
+    "screen_off_timeout": "2147483647"
+  },
+  "global_settings": {"device_name": "Galaxy S25", "mobile_data": "1", "wifi_on": "0", "auto_time": "1", "auto_time_zone": "1"},
+  "secure_settings": {"location_mode": "3"},
+  "timezone": "GMT",
+  "battery": {"level": 83, "status": "discharging", "health": "good", "present": true, "ac": false},
+  "duck": {
+    "package": "com.eltavine.duckdetector",
+    "version_code": 1097,
+    "sha256": "3c0041b0acd959889dfa6e16e1cf3d6b0a24a9192abf06e3210a97c0401ccd0b",
+    "comparison_baseline": {"danger": 3, "warning": 3, "ready": 20, "pending": 0},
+    "remaining_red": ["Bootloader", "TEE", "Virtualization"]
+  },
+  "steps": [
+    {"id": 1, "name": "Check Linux x86_64 host, KVM and free storage", "mode": "automatic"},
+    {"id": 2, "name": "Check the supported official Google Play SDK image and engine hashes", "mode": "automatic"},
+    {"id": 3, "name": "Reserve a unique AVD name, directory and unused control ports", "mode": "automatic"},
+    {"id": 4, "name": "Create fresh private userdata; never clone an existing phone identity", "mode": "automatic"},
+    {"id": 5, "name": "Configure four CPUs, 4096 MiB RAM and 6 GiB data storage", "mode": "automatic"},
+    {"id": 6, "name": "Reserve a persistent random serial and Luhn-valid synthetic IMEI", "mode": "automatic"},
+    {"id": 7, "name": "Prepare private Linux engines and the tested Android 17 S25 image", "mode": "automatic"},
+    {"id": 8, "name": "Pass the saved serial through the native emulator launch option", "mode": "automatic"},
+    {"id": 9, "name": "Apply the saved synthetic IMEI to the actual host modem responses", "mode": "automatic"},
+    {"id": 10, "name": "Retain authenticated ADB and token-protected local gRPC control", "mode": "automatic"},
+    {"id": 11, "name": "Install a persistent per-phone systemd boot service", "mode": "automatic"},
+    {"id": 12, "name": "Boot Android 17 with the S25 identity profile and no Magisk", "mode": "automatic"},
+    {"id": 13, "name": "Record the new phone's Android ID and preserve it on later boots", "mode": "automatic"},
+    {"id": 14, "name": "Verify SELinux Enforcing, secure ADB, non-debuggable guest and no su", "mode": "automatic"},
+    {"id": 15, "name": "Set display resolution to 1080 by 2340", "mode": "automatic"},
+    {"id": 16, "name": "Set display density to 416", "mode": "automatic"},
+    {"id": 17, "name": "Lock portrait orientation with rotation zero", "mode": "automatic"},
+    {"id": 18, "name": "Set manual brightness to 102", "mode": "automatic"},
+    {"id": 19, "name": "Set screen timeout to 2147483647 milliseconds", "mode": "automatic"},
+    {"id": 20, "name": "Set the friendly device name to Galaxy S25", "mode": "automatic"},
+    {"id": 21, "name": "Apply the saved GMT time-zone profile", "mode": "automatic"},
+    {"id": 22, "name": "Retain location mode 3 without inventing GPS coordinates", "mode": "automatic"},
+    {"id": 23, "name": "Enable mobile data and verify a validated cellular default network", "mode": "automatic"},
+    {"id": 24, "name": "Disable Wi-Fi", "mode": "automatic"},
+    {"id": 25, "name": "Set native modem voice and data to home registration", "mode": "automatic"},
+    {"id": 26, "name": "Set native battery to 83 percent, unplugged, discharging and good health", "mode": "automatic"},
+    {"id": 27, "name": "Reapply native battery, radio and saved settings after each boot", "mode": "automatic"},
+    {"id": 28, "name": "Install and hash-check the unchanged Duck Detector APK", "mode": "automatic"},
+    {"id": 29, "name": "Install additional explicitly selected apps", "mode": "conditional"},
+    {"id": 30, "name": "Configure a supplied per-phone proxy and matching GPS/time zone", "mode": "conditional"},
+    {"id": 31, "name": "Configure and verify a supplied camera feed using its measured app preview", "mode": "conditional"},
+    {"id": 32, "name": "Cold-boot again and verify identifiers, security, battery and connectivity", "mode": "automatic"},
+    {"id": 33, "name": "Save the profile snapshot, verification evidence and completion record", "mode": "automatic"},
+    {"id": 34, "name": "Complete Duck's startup checkpoint when needed and compare a fresh scan", "mode": "interactive"}
+  ]
+}

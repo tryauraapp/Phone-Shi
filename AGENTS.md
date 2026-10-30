@@ -1,3 +1,19 @@
+# New VPS phone setup
+
+- Use `PHONE_SETUP_STANDARD.md`, `phone_setup_standard.json`, and
+  `setup_vps_phone.py create` for every new VPS phone. This is the saved combined
+  Android 17 rootless standard; the Mac Android 15/Magisk installer is legacy.
+- The current standard is `vps-android17-s25-v2`: preserve its tested private
+  image and app-visible Samsung/SM-S931B identity. Read `S25_ANDROID17.md` before
+  changing this profile. A friendly device name alone does not satisfy it.
+- Preserve the full compatible battery, cellular, display and user-setting
+  profile, and generate persistent unique serial/IMEI plus fresh userdata and
+  Android ID per phone. Never clone another phone's identity to create a new one.
+- Keep a per-phone profile snapshot and verification records. Do not mark a
+  pending Duck startup/scan or an unrequested optional extension as completed.
+- Existing working phones and private media must remain intact. Changes to the
+  standard do not authorize silently migrating every existing phone.
+
 # Camera-feed work
 
 Before changing video-camera preparation or emulator camera configuration, read
