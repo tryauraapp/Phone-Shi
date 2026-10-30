@@ -64,8 +64,15 @@ Needs only the command line Swift toolchain (no Xcode):
 
 That builds `build/Phone Shi CRM.app` and copies it to `~/Applications`.
 
-## Not included yet
+## Creating phones
 
-Phone provisioning and warm-up are deliberately not wired in. The app manages
-and observes phones; creating or warming a phone stays with the scripts in the
-repository root until the chosen process is decided.
+**New phone** (Phones toolbar) runs the standard VDS setup,
+`/opt/android-vm/standard-setup/setup_vps_phone.py create`, as root over SSH
+inside a tracked `systemd-run` unit named `phone-setup-<name>`, logging to
+`/opt/android-vm/setup-logs/<name>.log`. The sheet suggests the next free
+emulator/gRPC port pair and a name, lists the 34 stages from the script's
+`plan`, and the phone appears as **Setting up** with its log, stage count and
+Resume / Verify actions in the side pane while the two verification boots run.
+Stage 34 (the Duck review) stays interactive and is recorded on the VDS with
+`record-scan`. The Snap **New account** sheet can create a phone for the
+account in the same way and links it automatically.
