@@ -40,7 +40,10 @@ struct DashboardView: View {
         HStack(spacing: 12) {
             StatTile(title: "Phones", value: rows.count, icon: "iphone")
             StatTile(title: "Online", value: rows.filter(\.isOnline).count, icon: "bolt.fill", tint: .green)
-            StatTile(title: "Stopped", value: rows.filter { !$0.isOnline }.count, icon: "powersleep", tint: .orange)
+            StatTile(title: "Stopped", value: rows.filter { !$0.isOnline && !($0.live?.isSettingUp ?? false) }.count,
+                     icon: "powersleep", tint: .orange)
+            StatTile(title: "Setting up", value: rows.filter { $0.live?.isSettingUp ?? false }.count,
+                     icon: "gearshape.2", tint: .blue)
             StatTile(title: "Creators", value: store.creators.count, icon: "person.2")
             StatTile(title: "Snap accounts", value: store.snapAccounts.count, icon: "bolt.circle", tint: .yellow)
             StatTile(title: "Apps", value: store.appStats.count, icon: "app.badge")

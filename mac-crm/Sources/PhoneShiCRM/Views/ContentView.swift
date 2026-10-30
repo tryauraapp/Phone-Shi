@@ -48,7 +48,7 @@ struct ContentView: View {
         .task {
             await store.refresh()
             while !Task.isCancelled {
-                let seconds = max(15, store.settings.autoRefreshSeconds)
+                let seconds = store.hasRunningSetup ? 15 : max(15, store.settings.autoRefreshSeconds)
                 try? await Task.sleep(for: .seconds(seconds))
                 await store.refresh()
             }

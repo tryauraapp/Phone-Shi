@@ -55,6 +55,51 @@ struct ConnectionSettings: Codable, Hashable {
     var adbPath = "/opt/android-vm/sdk/platform-tools/adb"
     var viewerBase = "https://13.140.66.200"
     var autoRefreshSeconds = 60
+    var setupScript = "/opt/android-vm/standard-setup/setup_vps_phone.py"
+    var duckApk = "/opt/android-vm-staging/duck-detector-original.apk"
+
+    init() {}
+
+    // Older saved files may lack newer keys; keep their values and fill defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ConnectionSettings()
+        host = try c.decodeIfPresent(String.self, forKey: .host) ?? d.host
+        user = try c.decodeIfPresent(String.self, forKey: .user) ?? d.user
+        keyPath = try c.decodeIfPresent(String.self, forKey: .keyPath) ?? d.keyPath
+        adbPath = try c.decodeIfPresent(String.self, forKey: .adbPath) ?? d.adbPath
+        viewerBase = try c.decodeIfPresent(String.self, forKey: .viewerBase) ?? d.viewerBase
+        autoRefreshSeconds = try c.decodeIfPresent(Int.self, forKey: .autoRefreshSeconds) ?? d.autoRefreshSeconds
+        setupScript = try c.decodeIfPresent(String.self, forKey: .setupScript) ?? d.setupScript
+        duckApk = try c.decodeIfPresent(String.self, forKey: .duckApk) ?? d.duckApk
+    }
+}
+
+/// State of a phone created by setup_vps_phone.py on the VDS.
+struct PhoneSetup: Codable, Hashable {
+    var name: String
+    var directory: String
+    var port: Int?
+    var grpcPort: Int?
+    var status: String
+    var automatedBaseComplete: Bool
+    var fullSetupComplete: Bool
+    var duckScan: String
+    var stepsVerified: Int
+    var stepsTotal: Int
+    var logTail: String
+    var unitActive: String
+
+    var isRunning: Bool { status == "running" }
+    var statusLabel: String {
+        switch status {
+        case "running": return "Setting up"
+        case "complete": return "Setup complete"
+        case "base-complete": return "Base setup done · Duck review pending"
+        case "failed": return "Setup failed"
+        default: return "Setup incomplete"
+        }
+    }
 }
 
 // MARK: - Live inventory from the VDS
@@ -80,8 +125,10 @@ struct LivePhone: Codable, Hashable, Identifiable {
     var foregroundPackage: String
     var packages: [String]
     var control: PhoneControl?
+    var setup: PhoneSetup?
 
     var isOnline: Bool { state == "device" }
+    var isSettingUp: Bool { state == "setting-up" || setup?.isRunning == true }
 
     var modelLabel: String {
         if model.isEmpty { return "Unknown" }
@@ -114,6 +161,8 @@ struct Inventory: Codable, Hashable {
     var host: HostInfo
     var phones: [LivePhone]
     var controllers: [PhoneControl]
+    var nextPort: Int?
+    var nextGrpcPort: Int?
 }
 
 // MARK: - Combined row shown in the UI
@@ -128,6 +177,7 @@ struct PhoneRow: Identifiable, Hashable {
     var modelLabel: String { live?.modelLabel ?? "Unknown" }
     var stateLabel: String {
         guard let live else { return "Not seen" }
+        if live.isSettingUp { return "Setting up" }
         if live.state == "offline" { return "Stopped" }
         if live.state != "device" { return live.state.capitalized }
         return live.bootCompleted ? "Online" : "Booting"

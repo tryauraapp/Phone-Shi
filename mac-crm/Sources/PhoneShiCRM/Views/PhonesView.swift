@@ -5,6 +5,7 @@ struct PhonesView: View {
     @State private var selection: String?
     @State private var search = ""
     @State private var openSerials: [String] = []
+    @State private var showNewPhone = false
 
     private var rows: [PhoneRow] {
         let all = store.rows
@@ -39,6 +40,16 @@ struct PhonesView: View {
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search phones")
         .navigationTitle("Phones")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showNewPhone = true } label: { Label("New phone", systemImage: "plus") }
+                    .help("Create a phone on the VDS with the standard setup")
+            }
+        }
+        .sheet(isPresented: $showNewPhone) {
+            NewPhoneSheet(draft: NewPhoneDraft.suggested(from: store)) { serial in selection = serial }
+                .environmentObject(store)
+        }
     }
 
     private func open(_ serial: String) {
@@ -49,7 +60,11 @@ struct PhonesView: View {
         Table(rows, selection: $selection) {
             TableColumn("Status") { row in
                 HStack(spacing: 6) {
-                    Circle().fill(row.isOnline ? Color.green : Color.orange).frame(width: 8, height: 8)
+                    if row.live?.isSettingUp == true {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Circle().fill(row.isOnline ? Color.green : Color.orange).frame(width: 8, height: 8)
+                    }
                     Text(row.stateLabel)
                 }
             }
@@ -156,6 +171,10 @@ struct PhoneDetailView: View {
                         TextField("Notes", text: record.notes, axis: .vertical).lineLimit(3...6)
                     }
                     .formStyle(.columns)
+                }
+
+                if let setup = row.live?.setup {
+                    PhoneSetupSection(setup: setup)
                 }
 
                 if let live = row.live {

@@ -7,12 +7,16 @@ that control them, and basic host health. Read-only: it never starts, stops
 or touches a phone.
 """
 import datetime
+import glob
 import json
 import os
 import re
 import shutil
 import socket
 import subprocess
+
+PHONES_ROOT = "/opt/android-vm/phones"
+SETUP_LOGS = "/opt/android-vm/setup-logs"
 
 ADB_CANDIDATES = [
     os.environ.get("PHONE_SHI_ADB", ""),
@@ -102,6 +106,83 @@ def controllers():
     return found
 
 
+def read_json(path):
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def setups():
+    """Phones created (or being created) by setup_vps_phone.py, keyed by serial."""
+    found = {}
+    for meta_path in glob.glob(os.path.join(PHONES_ROOT, "*", "phone.json")):
+        meta = read_json(meta_path)
+        name, port = meta.get("name"), meta.get("port")
+        if not name or not port:
+            continue
+        found[f"emulator-{port}"] = (name, meta, os.path.dirname(meta_path))
+    # A setup that has not yet written phone.json still has a log and a unit.
+    for log_path in glob.glob(os.path.join(SETUP_LOGS, "*.log")):
+        name = os.path.basename(log_path)[:-4]
+        if not any(n == name for n, _, _ in found.values()):
+            port = None
+            m = re.search(r"--port (\d+)", sh(["head", "-c", "2000", log_path]))
+            if m:
+                port = int(m.group(1))
+            found[f"emulator-{port}" if port else f"setup:{name}"] = (name, {"port": port}, "")
+    out = {}
+    for serial, (name, meta, directory) in found.items():
+        cert = read_json(os.path.join(directory, "setup-complete.json")) if directory else {}
+        unit = f"phone-setup-{name}.service"
+        active = sh(["systemctl", "is-active", unit]).strip()
+        log_path = os.path.join(SETUP_LOGS, name + ".log")
+        log = ""
+        try:
+            with open(log_path, errors="replace") as fh:
+                log = fh.read()[-6000:]
+        except OSError:
+            pass
+        exit_match = re.findall(r"PHONE_SHI_EXIT=(\d+)", log)
+        if active in ("active", "activating"):
+            status = "running"
+        elif cert.get("full_setup_complete"):
+            status = "complete"
+        elif cert.get("automated_base_complete"):
+            status = "base-complete"
+        elif exit_match and exit_match[-1] != "0":
+            status = "failed"
+        elif log.strip():
+            status = "failed"
+        else:
+            status = "incomplete"
+        steps = cert.get("steps") or []
+        out[serial] = {
+            "name": name,
+            "directory": directory,
+            "port": meta.get("port"),
+            "grpcPort": meta.get("grpc_port"),
+            "status": status,
+            "automatedBaseComplete": bool(cert.get("automated_base_complete")),
+            "fullSetupComplete": bool(cert.get("full_setup_complete")),
+            "duckScan": cert.get("duck_scan") if isinstance(cert.get("duck_scan"), str)
+                        else ((cert.get("duck_scan") or {}).get("status") or ""),
+            "stepsVerified": sum(1 for st in steps if st.get("status") in ("verified", "reviewed")),
+            "stepsTotal": len(steps),
+            "logTail": log[-2500:],
+            "unitActive": active,
+        }
+    return out
+
+
+def next_ports(used_ports):
+    port = 5554
+    while port in used_ports or port + 1 in used_ports:
+        port += 2
+    return port, port + 3000
+
+
 def host():
     mem = {}
     try:
@@ -130,6 +211,7 @@ def host():
 def main():
     control = controllers()
     by_serial = {c["serial"]: c for c in control if c["serial"]}
+    setup_by_serial = setups()
     phones = []
     seen = set()
     for serial, state in devices():
@@ -147,20 +229,54 @@ def main():
             "foregroundPackage": foreground(serial) if state == "device" else "",
             "packages": packages(serial) if state == "device" else [],
             "control": by_serial.get(serial),
+            "setup": setup_by_serial.get(serial),
         })
     for serial, c in by_serial.items():
         if serial in seen:
             continue
+        seen.add(serial)
         phones.append({
             "serial": serial, "state": "offline", "manufacturer": "", "model": "",
             "product": "", "androidVersion": "", "sdk": "", "bootCompleted": False,
             "foregroundPackage": "", "packages": [], "control": c,
+            "setup": setup_by_serial.get(serial),
         })
+    for serial, setup in setup_by_serial.items():
+        if serial in seen or not serial.startswith("emulator-"):
+            continue
+        seen.add(serial)
+        phones.append({
+            "serial": serial, "state": "setting-up" if setup["status"] == "running" else "offline",
+            "manufacturer": "", "model": "", "product": "", "androidVersion": "", "sdk": "",
+            "bootCompleted": False, "foregroundPackage": "", "packages": [], "control": None,
+            "setup": setup,
+        })
+    used = set()
+    for phone in phones:
+        m = re.fullmatch(r"emulator-(\d+)", phone["serial"])
+        if m:
+            used.add(int(m.group(1)))
+    for line in sh(["ss", "-ltnH"]).splitlines():
+        m = re.search(r":(\d+)\s", line)
+        if m:
+            used.add(int(m.group(1)))
+    if shutil.which("docker"):
+        # Port bindings of every container, running or not: a stopped Redroid
+        # phone still owns its emulator port pair.
+        names = sh(["docker", "ps", "-aq"], timeout=20).split()
+        if names:
+            bindings = sh(["docker", "inspect", "-f", "{{json .HostConfig.PortBindings}}", *names], timeout=20)
+            for m in re.finditer(r'"HostPort":\s*"(\d+)"', bindings):
+                host_port = int(m.group(1))
+                used.update({host_port - 1, host_port})
+    next_port, next_grpc = next_ports(used)
     print(json.dumps({
         "capturedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "host": host(),
         "phones": sorted(phones, key=lambda p: p["serial"]),
         "controllers": control,
+        "nextPort": next_port,
+        "nextGrpcPort": next_grpc,
     }))
 
 

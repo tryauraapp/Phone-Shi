@@ -5,6 +5,7 @@ struct SnapAccountsView: View {
     @State private var selection: UUID?
     @State private var newUsername = ""
     @State private var search = ""
+    @State private var showAdd = false
 
     private var accounts: [SnapAccount] {
         let all = store.snapAccounts.sorted { $0.username.lowercased() < $1.username.lowercased() }
@@ -28,6 +29,8 @@ struct SnapAccountsView: View {
                         .onSubmit(add)
                     Button("Add", action: add)
                         .disabled(newUsername.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("New account with phone…") { showAdd = true }
+                        .help("Add an account and optionally create a phone for it on the VDS")
                 }
                 .padding(10)
             }
@@ -40,6 +43,15 @@ struct SnapAccountsView: View {
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search Snap accounts")
         .navigationTitle("Snap Accounts")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button { showAdd = true } label: { Label("New account", systemImage: "plus") }
+            }
+        }
+        .sheet(isPresented: $showAdd) {
+            AddSnapAccountSheet(draft: NewPhoneDraft.suggested(from: store))
+                .environmentObject(store)
+        }
         .overlay {
             if store.snapAccounts.isEmpty {
                 ContentUnavailableView("No Snap accounts yet", systemImage: "bolt.circle",

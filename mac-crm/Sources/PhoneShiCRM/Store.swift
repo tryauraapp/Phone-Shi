@@ -242,6 +242,84 @@ final class Store: ObservableObject {
         }
     }
 
+    // MARK: Phone setup
+
+    var hasRunningSetup: Bool {
+        (inventory?.phones ?? []).contains { $0.setup?.isRunning == true }
+    }
+
+    nonisolated static func validateSetup(name: String, port: Int?, grpcPort: Int?) -> String? {
+        guard name.range(of: #"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil else {
+            return "Use a name of 1–64 letters, digits, dots, underscores or hyphens."
+        }
+        guard let port, (5554...5682).contains(port), port % 2 == 0 else {
+            return "Choose an even emulator port between 5554 and 5682."
+        }
+        guard let grpcPort, (1024...65535).contains(grpcPort), grpcPort != port, grpcPort != port + 1 else {
+            return "Choose a separate gRPC port between 1024 and 65535."
+        }
+        return nil
+    }
+
+    /// Starts the standard setup on the VDS and records the phone locally. Returns the new serial.
+    func createPhone(name: String, port: Int, grpcPort: Int, nickname: String, creatorID: UUID?) async -> String? {
+        let serial = "emulator-\(port)"
+        let client = self.client
+        do {
+            try await Task.detached { try client.createPhone(name: name, port: port, grpcPort: grpcPort) }.value
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+        var record = phones[serial] ?? PhoneRecord(serial: serial)
+        record.nickname = nickname.isEmpty ? name : nickname
+        if let creatorID { record.creatorID = creatorID }
+        if record.notes.isEmpty { record.notes = "Created from Phone Shi CRM as \(name)." }
+        phones[serial] = record
+        lastError = nil
+        save()
+        await refresh()
+        return serial
+    }
+
+    func resumeSetup(_ setup: PhoneSetup) async {
+        let client = self.client
+        do {
+            try await Task.detached { try client.resumeSetup(name: setup.name, directory: setup.directory) }.value
+            lastError = nil
+            await refresh()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func verifyPhone(_ setup: PhoneSetup) async -> String {
+        let client = self.client
+        do {
+            let text = try await Task.detached { try client.verifyPhone(directory: setup.directory) }.value
+            lastError = nil
+            await refresh()
+            return text
+        } catch {
+            lastError = error.localizedDescription
+            return "Verification failed: \(error.localizedDescription)"
+        }
+    }
+
+    func setupLog(_ setup: PhoneSetup) async -> String {
+        let client = self.client
+        do {
+            return try await Task.detached { try client.setupLog(name: setup.name) }.value
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    func setupPlan() async -> [String] {
+        let client = self.client
+        return (try? await Task.detached { try client.setupPlan() }.value) ?? []
+    }
+
     func saveScreenshot(serial: String) async {
         guard let image = await screenshot(serial: serial),
               let tiff = image.tiffRepresentation,
