@@ -29,10 +29,12 @@ struct PhonesView: View {
                         .background(.background)
                 }
             }
-            .frame(minHeight: 160)
+            .frame(minHeight: 150, idealHeight: openSerials.isEmpty ? nil : 240,
+                   maxHeight: openSerials.isEmpty ? .infinity : 400)
             if !openSerials.isEmpty {
                 OpenPhonesStrip(openSerials: $openSerials)
-                    .frame(minHeight: 360, idealHeight: 720)
+                    .frame(minHeight: 400, idealHeight: 2000, maxHeight: .infinity)
+                    .layoutPriority(1)
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search phones")
@@ -70,7 +72,7 @@ struct PhonesView: View {
                 }
             }
             TableColumn("Creator") { row in
-                CreatorPicker(serial: row.serial)
+                CreatorPicker(store: store, serial: row.serial)
             }
             .width(160)
             TableColumn("Apps") { row in
@@ -103,7 +105,7 @@ struct PhonesView: View {
 }
 
 struct CreatorPicker: View {
-    @EnvironmentObject private var store: Store
+    @ObservedObject var store: Store
     let serial: String
 
     var body: some View {
