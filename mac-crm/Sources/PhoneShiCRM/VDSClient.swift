@@ -106,6 +106,11 @@ struct VDSClient {
         return data
     }
 
+    func sendKey(serial: String, keycode: Int) throws {
+        let adb = shellQuote(settings.adbPath)
+        try run("\(adb) -s \(shellQuote(serial)) shell input keyevent \(keycode)", timeout: 20)
+    }
+
     func testConnection() throws -> String {
         let data = try run("hostname && uptime -p", timeout: 20)
         return String(data: data, encoding: .utf8)?

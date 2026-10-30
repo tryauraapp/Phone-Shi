@@ -33,9 +33,13 @@ on the Mac.
 
 Each open phone is a `WKWebView` loading the VDS's own browser phone page,
 `<viewer base>/go?udid=<serial>`, which is the ws-scrcpy stream behind nginx
-and a trusted Let's Encrypt certificate. Mouse and keyboard in the web view
-go to the phone exactly as they do in a browser. The web view is kept alive
-while the phone stays open, so switching sections does not restart the stream.
+and a trusted Let's Encrypt certificate. A user script injected into that page
+hides the device list, modal chrome and control column and scales the two
+stream canvases (video and touch layer) to fill the frame, so the card shows
+only the live phone screen. Mouse and keyboard in the web view go to the phone
+exactly as they do in a browser. Back, Home, Recents and Power buttons in the
+card header send adb key events over SSH. The web view is kept alive while the
+phone stays open, so switching sections does not restart the stream.
 
 ## How it reads the VDS
 

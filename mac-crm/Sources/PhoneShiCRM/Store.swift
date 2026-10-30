@@ -233,6 +233,15 @@ final class Store: ObservableObject {
         }
     }
 
+    func sendKey(serial: String, keycode: Int) async {
+        let client = self.client
+        do {
+            try await Task.detached { try client.sendKey(serial: serial, keycode: keycode) }.value
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func testConnection() async -> String {
         let client = self.client
         do {
