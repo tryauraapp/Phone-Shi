@@ -221,8 +221,8 @@ def main():
         if not c["serial"]:
             continue
         if c["serial"] in by_serial:
+            c["detail"] += " (port owned by " + by_serial[c["serial"]]["name"] + ")"
             c["serial"] = ""
-            c["detail"] += " — port owned by " + by_serial[c["serial"] if False else list(by_serial)[0]]["name"] if False else ""
             continue
         by_serial[c["serial"]] = c
     setup_by_serial = setups()
