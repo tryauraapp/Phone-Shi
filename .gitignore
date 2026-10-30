@@ -35,3 +35,8 @@ __pycache__/
 /pof-signup/*
 !/pof-signup/README.md
 !/pof-signup/observed-flow.json
+
+# Native Mac CRM build output
+/mac-crm/.build/
+/mac-crm/build/
+/mac-crm/Sources/PhoneShiCRM/InventoryScript.swift
