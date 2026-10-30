@@ -40,8 +40,14 @@ viewport-relative size clamps on the stream canvases, and scales the two
 canvases (video and touch layer) to fill the frame. The page reports the real
 video size back to the app, which sizes the frame to the phone's exact aspect
 ratio, so the card shows only the live phone screen with no letterboxing. Mouse and keyboard in the web view go to the phone
-exactly as they do in a browser. Back, Home, Recents and Power buttons in the
-card header send adb key events over SSH. The web view is kept alive while the
+exactly as they do in a browser. The toolbar's Back, Home, Recents, volume and
+Power buttons send adb key events over SSH.
+
+**Pasting from the Mac**: the Paste button (or ⌘V while the phone has focus)
+reads the Mac clipboard, hands the text to ws-scrcpy's "push host clipboard to
+device" action inside the stream page (substituting the browser clipboard read,
+which WebKit would block), then presses Android's Paste key so the text lands
+in the focused field. The web view is kept alive while the
 phone stays open, so switching sections does not restart the stream.
 
 ## How it reads the VDS

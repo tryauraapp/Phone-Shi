@@ -83,6 +83,57 @@ final class PhoneWebViews: NSObject, ObservableObject, WKScriptMessageHandler {
     /// Stream width divided by height, reported by the page once it knows.
     @Published var aspects: [String: CGFloat] = [:]
     private var views: [String: WKWebView] = [:]
+    private var keyMonitor: Any?
+    /// Called with the serial when Cmd+V is pressed while that phone's view has focus.
+    var pasteHandler: ((String) -> Void)?
+
+    private override init() {
+        super.init()
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                  event.charactersIgnoringModifiers == "v",
+                  let serial = self.focusedSerial() else { return event }
+            self.pasteHandler?(serial)
+            return nil
+        }
+    }
+
+    /// The serial of the phone whose web view currently has keyboard focus, if any.
+    func focusedSerial() -> String? {
+        guard let responder = NSApp.keyWindow?.firstResponder as? NSView else { return nil }
+        var view: NSView? = responder
+        while let current = view {
+            if let web = current as? WKWebView, let serial = views.first(where: { $0.value === web })?.key {
+                return serial
+            }
+            view = current.superview
+        }
+        return nil
+    }
+
+    /// Hands text to ws-scrcpy's "push host clipboard to device" action inside the
+    /// stream page, with the browser clipboard read replaced by the given text.
+    func pushClipboard(serial: String, text: String) async -> Bool {
+        guard let view = views[serial] else { return false }
+        let encoded = (try? JSONSerialization.data(withJSONObject: [text])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+        let script = """
+        (function () {
+          const text = \(encoded)[0];
+          const frame = document.getElementById('app');
+          const w = frame && frame.contentWindow, d = frame && frame.contentDocument;
+          if (!w || !d) { return 'no-frame'; }
+          const button = d.querySelector('button[title="push host clipboard to device"]');
+          if (!button) { return 'no-button'; }
+          const clipboard = w.navigator.clipboard;
+          if (!clipboard) { return 'no-clipboard'; }
+          Object.defineProperty(clipboard, 'readText', { value: () => Promise.resolve(text), configurable: true });
+          button.click();
+          return 'sent';
+        })();
+        """
+        let result = try? await view.evaluateJavaScript(script)
+        return (result as? String) == "sent"
+    }
 
     func view(for serial: String, url: URL) -> WKWebView {
         if let existing = views[serial] { return existing }
@@ -212,6 +263,7 @@ struct PhoneViewerCard: View {
             tool("speaker.wave.1", "Volume down") { await store.sendKey(serial: row.serial, keycode: 25) }
             tool("power", "Power / wake") { await store.sendKey(serial: row.serial, keycode: 26) }
             Divider().frame(width: 20)
+            tool("doc.on.clipboard", "Paste the Mac clipboard into the phone (⌘V)") { await store.pasteClipboard(serial: row.serial) }
             tool("camera", "Save a screenshot to the Desktop") { await store.saveScreenshot(serial: row.serial) }
             tool("arrow.clockwise", "Reconnect the stream") { webViews.reload(serial: row.serial) }
             tool("safari", "Open in your browser") { store.openViewer(serial: row.serial) }

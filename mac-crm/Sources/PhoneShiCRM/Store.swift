@@ -29,7 +29,12 @@ final class Store: ObservableObject {
         return base.appendingPathComponent("crm.json")
     }
 
-    init() { load() }
+    init() {
+        load()
+        PhoneWebViews.shared.pasteHandler = { [weak self] serial in
+            Task { await self?.pasteClipboard(serial: serial) }
+        }
+    }
 
     // MARK: Persistence
 
@@ -318,6 +323,22 @@ final class Store: ObservableObject {
     func setupPlan() async -> [String] {
         let client = self.client
         return (try? await Task.detached { try client.setupPlan() }.value) ?? []
+    }
+
+    /// Pastes the Mac clipboard text into the phone: sets the device clipboard
+    /// through the stream, then presses Android's Paste key.
+    func pasteClipboard(serial: String) async {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            lastError = "The Mac clipboard has no text to paste."
+            return
+        }
+        guard await PhoneWebViews.shared.pushClipboard(serial: serial, text: text) else {
+            lastError = "Open the phone in the CRM first; the stream carries the clipboard to the phone."
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(400))
+        await sendKey(serial: serial, keycode: 279)
+        lastError = nil
     }
 
     func saveScreenshot(serial: String) async {
