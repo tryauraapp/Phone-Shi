@@ -12,16 +12,26 @@ on the Mac.
   Android version.
 - **Phones**: one row per phone with status, model, creator assignment, installed
   third-party apps, the app currently on screen and a use flag
-  (active / paused / retired). Selecting a row opens a side pane with the
-  record, live details, installed apps, **Open viewer** (the VDS browser phone
-  at `<viewer base>/go?udid=<serial>`), **Screen** (an adb screenshot) and
-  **Start / Stop** through the phone's systemd unit or docker container.
+  (active / paused / retired). **Open** on a row (or in the side pane) streams
+  that phone underneath the table with full touch and keyboard control; several
+  phones can be open side by side, each with reconnect, open-in-browser and
+  close buttons. Selecting a row opens a side pane with the record, live
+  details, installed apps, **Screen** (an adb screenshot) and **Start / Stop**
+  through the phone's systemd unit or docker container.
 - **Creators**: name, Instagram, TikTok and OnlyFans handles, notes, and the
   phones assigned to them.
 - **Apps**: every package seen on a phone with an editable friendly name and
   the phones it is installed on.
 - **VDS Settings**: host, SSH user and key, adb path on the VDS, viewer base
   URL, auto-refresh interval, and a connection test.
+
+## How the embedded phone works
+
+Each open phone is a `WKWebView` loading the VDS's own browser phone page,
+`<viewer base>/go?udid=<serial>`, which is the ws-scrcpy stream behind nginx
+and a trusted Let's Encrypt certificate. Mouse and keyboard in the web view
+go to the phone exactly as they do in a browser. The web view is kept alive
+while the phone stays open, so switching sections does not restart the stream.
 
 ## How it reads the VDS
 

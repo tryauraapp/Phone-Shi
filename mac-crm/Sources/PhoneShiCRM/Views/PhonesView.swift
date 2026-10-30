@@ -4,6 +4,7 @@ struct PhonesView: View {
     @EnvironmentObject private var store: Store
     @State private var selection: String?
     @State private var search = ""
+    @State private var openSerials: [String] = []
 
     private var rows: [PhoneRow] {
         let all = store.rows
@@ -17,17 +18,29 @@ struct PhonesView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            table
-            if let serial = selection, let row = store.rows.first(where: { $0.serial == serial }) {
-                Divider()
-                PhoneDetailView(row: row)
-                    .frame(width: 340)
-                    .background(.background)
+        VSplitView {
+            HStack(spacing: 0) {
+                table
+                if let serial = selection, let row = store.rows.first(where: { $0.serial == serial }) {
+                    Divider()
+                    PhoneDetailView(row: row, isOpen: openSerials.contains(serial),
+                                    open: { open(serial) })
+                        .frame(width: 340)
+                        .background(.background)
+                }
+            }
+            .frame(minHeight: 160)
+            if !openSerials.isEmpty {
+                OpenPhonesStrip(openSerials: $openSerials)
+                    .frame(minHeight: 420, idealHeight: 760)
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search phones")
         .navigationTitle("Phones")
+    }
+
+    private func open(_ serial: String) {
+        if !openSerials.contains(serial) { openSerials.append(serial) }
     }
 
     private var table: some View {
@@ -79,6 +92,12 @@ struct PhonesView: View {
                 .labelsHidden()
             }
             .width(100)
+            TableColumn("") { row in
+                Button(openSerials.contains(row.serial) ? "Opened" : "Open") { open(row.serial) }
+                    .disabled(!row.isOnline || openSerials.contains(row.serial))
+                    .controlSize(.small)
+            }
+            .width(70)
         }
     }
 }
@@ -101,6 +120,8 @@ struct CreatorPicker: View {
 struct PhoneDetailView: View {
     @EnvironmentObject private var store: Store
     let row: PhoneRow
+    var isOpen = false
+    var open: () -> Void = {}
     @State private var screenshot: NSImage?
     @State private var loadingScreenshot = false
 
@@ -191,10 +212,17 @@ struct PhoneDetailView: View {
     private var actions: some View {
         HStack(spacing: 8) {
             let busy = store.busySerials.contains(row.serial)
+            Button(action: open) {
+                Label(isOpen ? "Opened" : "Open", systemImage: "rectangle.on.rectangle")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!row.isOnline || isOpen)
+            .help("Open and control this phone underneath the table")
             Button {
                 store.openViewer(serial: row.serial)
-            } label: { Label("Open viewer", systemImage: "rectangle.on.rectangle") }
+            } label: { Image(systemName: "safari") }
                 .disabled(!row.isOnline)
+                .help("Open in your browser instead")
             Button {
                 loadingScreenshot = true
                 Task { screenshot = await store.screenshot(serial: row.serial); loadingScreenshot = false }
