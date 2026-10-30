@@ -32,6 +32,21 @@ on the Mac.
 
 ## How the embedded phone works
 
+Emulators created by the standard setup stream **natively**: the app runs
+`Helper/phone_bridge.py` (from the repo's `.local/grpc-viewer-venv`, built on
+`vds_phone_view/`) as a child process. The bridge finds the emulator's
+token-protected gRPC endpoint on the VDS, forwards it through SSH, negotiates
+WebRTC (VP8 over UDP) with the emulator's own stream, and writes raw RGB frames
+to a pipe that a native `NSView` draws. Mouse and keyboard go back as gRPC
+`sendTouch` / `sendKey` calls, injected as kernel input. If the phone's gRPC
+allowlist does not include the WebRTC service, the bridge falls back to the
+emulator's PNG screenshot stream and the card offers **Enable WebRTC**, which
+installs `vds_phone_view/emulator_access.json` (stock plus the Rtc services)
+into that phone's private emulator and restarts it. The globe button switches a
+card to the browser stream; Redroid containers always use it.
+
+### Browser stream
+
 Each open phone is a `WKWebView` loading the VDS's own browser phone page,
 `<viewer base>/go?udid=<serial>`, which is the ws-scrcpy stream behind nginx
 and a trusted Let's Encrypt certificate. A user script injected into that page

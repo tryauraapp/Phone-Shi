@@ -194,6 +194,8 @@ struct PhoneWebView: NSViewRepresentable {
 struct PhoneViewerCard: View {
     @EnvironmentObject private var store: Store
     @ObservedObject private var webViews = PhoneWebViews.shared
+    @ObservedObject private var nativeSessions = NativePhoneSessions.shared
+    @State private var useBrowser = false
     let row: PhoneRow
     let height: CGFloat
     var onClose: () -> Void
@@ -208,15 +210,31 @@ struct PhoneViewerCard: View {
         return URL(string: "\(base)/go?udid=\(row.serial)")
     }
 
+    private var nativeEligible: Bool {
+        store.settings.nativeViewer && row.live?.control?.kind == "systemd" && row.isOnline
+    }
+
+    private var usingNative: Bool { nativeEligible && !useBrowser }
+
+    private var aspect: CGFloat {
+        if usingNative, let size = nativeSessions.sessions[row.serial]?.deviceSize, size.height > 0 {
+            return size.width / size.height
+        }
+        return webViews.aspect(for: row.serial)
+    }
+
     var body: some View {
         let phoneHeight = max(120, height - headerHeight)
-        let phoneWidth = (phoneHeight * webViews.aspect(for: row.serial)).rounded()
+        let phoneWidth = (phoneHeight * aspect).rounded()
         VStack(spacing: 0) {
             header
                 .frame(height: headerHeight)
             HStack(spacing: 0) {
                 Group {
-                    if let url {
+                    if usingNative {
+                        NativePhoneStage(session: nativeSessions.session(for: row.serial, settings: store.settings),
+                                         row: row, switchToBrowser: { useBrowser = true })
+                    } else if let url {
                         PhoneWebView(serial: row.serial, url: url)
                     } else {
                         Text("Check the viewer base URL in VDS Settings.")
@@ -240,7 +258,18 @@ struct PhoneViewerCard: View {
             Circle().fill(row.isOnline ? Color.green : Color.orange).frame(width: 8, height: 8)
             Text(row.displayName).font(.callout.bold()).lineLimit(1)
             Text(row.modelLabel).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            if usingNative, let session = nativeSessions.sessions[row.serial] {
+                NativeStatusText(session: session)
+            } else {
+                Text("Browser").font(.caption2).foregroundStyle(.secondary)
+            }
             Spacer()
+            if nativeEligible {
+                Button { useBrowser.toggle() } label: {
+                    Image(systemName: useBrowser ? "bolt" : "globe")
+                }
+                .help(useBrowser ? "Switch back to the native stream" : "Switch to the browser stream")
+            }
             if let onPopOut {
                 Button(action: onPopOut) { Image(systemName: "macwindow.on.rectangle") }
                     .help("Open this phone in its own window")
@@ -265,7 +294,9 @@ struct PhoneViewerCard: View {
             Divider().frame(width: 20)
             tool("doc.on.clipboard", "Paste the Mac clipboard into the phone (⌘V)") { await store.pasteClipboard(serial: row.serial) }
             tool("camera", "Save a screenshot to the Desktop") { await store.saveScreenshot(serial: row.serial) }
-            tool("arrow.clockwise", "Reconnect the stream") { webViews.reload(serial: row.serial) }
+            tool("arrow.clockwise", "Reconnect the stream") {
+                if usingNative { nativeSessions.sessions[row.serial]?.restart() } else { webViews.reload(serial: row.serial) }
+            }
             tool("safari", "Open in your browser") { store.openViewer(serial: row.serial) }
             Spacer()
         }
@@ -308,6 +339,7 @@ struct OpenPhonesStrip: View {
 
     private func close(_ serial: String) {
         PhoneWebViews.shared.close(serial: serial)
+        NativePhoneSessions.shared.close(serial: serial)
         openSerials.removeAll { $0 == serial }
     }
 
@@ -334,6 +366,68 @@ struct PhoneWindowView: View {
         }
         .background(Color.black)
         .navigationTitle(store.rows.first { $0.serial == serial }?.displayName ?? serial)
-        .onDisappear { PhoneWebViews.shared.close(serial: serial) }
+        .onDisappear {
+            PhoneWebViews.shared.close(serial: serial)
+            NativePhoneSessions.shared.close(serial: serial)
+        }
+    }
+}
+
+
+/// The native canvas with status overlays: connecting, failed (with a browser
+/// fallback) and the one-click WebRTC enablement when the phone only allows
+/// screenshot frames.
+struct NativePhoneStage: View {
+    @EnvironmentObject private var store: Store
+    @ObservedObject var session: NativePhoneSession
+    let row: PhoneRow
+    var switchToBrowser: () -> Void
+
+    var body: some View {
+        ZStack {
+            NativePhoneView(session: session)
+            if session.state == "connecting" && session.image == nil {
+                VStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(session.statusLabel).font(.caption).foregroundStyle(.white)
+                }
+            }
+            if session.state == "failed" || session.state == "ended" {
+                VStack(spacing: 10) {
+                    Text(session.error ?? session.statusLabel)
+                        .font(.caption).multilineTextAlignment(.center).foregroundStyle(.white)
+                        .padding(.horizontal)
+                    HStack {
+                        Button("Retry") { session.restart() }
+                        Button("Use browser") { switchToBrowser() }
+                    }
+                    .controlSize(.small)
+                }
+                .padding()
+                .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
+            }
+            if session.rtcDenied && session.mode == "screenshot" && session.state == "connected" {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Text("Screenshot frames: WebRTC is not enabled on this phone.")
+                            .font(.caption2).foregroundStyle(.white)
+                        Button("Enable WebRTC (restarts phone)") { Task { await store.enableWebRTC(row) } }
+                            .controlSize(.mini)
+                            .disabled(store.busySerials.contains(row.serial))
+                    }
+                    .padding(6)
+                    .background(.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(6)
+                }
+            }
+        }
+    }
+}
+
+private struct NativeStatusText: View {
+    @ObservedObject var session: NativePhoneSession
+    var body: some View {
+        Text(session.statusLabel).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
     }
 }

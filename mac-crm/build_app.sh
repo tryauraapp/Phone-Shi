@@ -15,6 +15,14 @@ Path("Sources/PhoneShiCRM/InventoryScript.swift").write_text(
     "enum InventoryScript {\n    static let source = ##\"\"\"\n" + src + "\"\"\"##\n}\n")
 PY
 
+# The native phone view runs the repo's gRPC/WebRTC viewer from this venv.
+REPO="$(cd .. && pwd)"
+if [[ ! -x "$REPO/.local/grpc-viewer-venv/bin/python" ]]; then
+  echo "Creating $REPO/.local/grpc-viewer-venv for the native phone view (one time)..."
+  python3 -m venv "$REPO/.local/grpc-viewer-venv"
+  "$REPO/.local/grpc-viewer-venv/bin/pip" install -q -r "$REPO/vds_phone_view/requirements.txt"
+fi
+
 swift build -c release 2>&1 | grep -E "error|warning: unre|Compiling|Build complete" | tail -20
 
 APP="build/Phone Shi CRM.app"

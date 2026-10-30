@@ -57,6 +57,8 @@ struct ConnectionSettings: Codable, Hashable {
     var autoRefreshSeconds = 60
     var setupScript = "/opt/android-vm/standard-setup/setup_vps_phone.py"
     var duckApk = "/opt/android-vm-staging/duck-detector-original.apk"
+    var repoPath = "~/claude-code/Phone-Shi-VPS-V2"
+    var nativeViewer = true
 
     init() {}
 
@@ -72,6 +74,8 @@ struct ConnectionSettings: Codable, Hashable {
         autoRefreshSeconds = try c.decodeIfPresent(Int.self, forKey: .autoRefreshSeconds) ?? d.autoRefreshSeconds
         setupScript = try c.decodeIfPresent(String.self, forKey: .setupScript) ?? d.setupScript
         duckApk = try c.decodeIfPresent(String.self, forKey: .duckApk) ?? d.duckApk
+        repoPath = try c.decodeIfPresent(String.self, forKey: .repoPath) ?? d.repoPath
+        nativeViewer = try c.decodeIfPresent(Bool.self, forKey: .nativeViewer) ?? d.nativeViewer
     }
 }
 

@@ -332,6 +332,11 @@ final class Store: ObservableObject {
             lastError = "The Mac clipboard has no text to paste."
             return
         }
+        if let session = NativePhoneSessions.shared.sessions[serial] {
+            session.text(text)
+            lastError = nil
+            return
+        }
         guard await PhoneWebViews.shared.pushClipboard(serial: serial, text: text) else {
             lastError = "Open the phone in the CRM first; the stream carries the clipboard to the phone."
             return
@@ -339,6 +344,36 @@ final class Store: ObservableObject {
         try? await Task.sleep(for: .milliseconds(400))
         await sendKey(serial: serial, keycode: 279)
         lastError = nil
+    }
+
+    /// Installs the repo's gRPC allowlist (stock plus the WebRTC service) into the
+    /// phone's private emulator and restarts it so the native view can use WebRTC.
+    func enableWebRTC(_ row: PhoneRow) async {
+        guard let setup = row.live?.setup, let control = row.live?.control, control.kind == "systemd" else {
+            lastError = "Only emulators created by the standard setup can be switched to WebRTC."
+            return
+        }
+        let repo = (settings.repoPath as NSString).expandingTildeInPath
+        guard let allowlist = try? Data(contentsOf: URL(fileURLWithPath: repo + "/vds_phone_view/emulator_access.json")) else {
+            lastError = "vds_phone_view/emulator_access.json was not found in the repo."
+            return
+        }
+        let client = self.client
+        let avd = setup.name
+        busySerials.insert(row.serial)
+        defer { busySerials.remove(row.serial) }
+        do {
+            let path = "/opt/android-vm/avd/\(avd).avd/private-emulator/lib/emulator_access.json"
+            try await Task.detached {
+                try client.run("f='\(path)'; cp -n \"$f\" \"$f.stock\" 2>/dev/null; cat > \"$f\" && systemctl restart '\(control.name)'",
+                               stdin: allowlist, timeout: 60)
+            }.value
+            NativePhoneSessions.shared.close(serial: row.serial)
+            lastError = nil
+            await refresh()
+        } catch {
+            lastError = error.localizedDescription
+        }
     }
 
     func saveScreenshot(serial: String) async {

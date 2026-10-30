@@ -23,6 +23,13 @@ struct SettingsView: View {
                 Text("New phones run `setup_vps_phone.py create` with these paths as root over SSH.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Native phone view") {
+                Toggle("Stream emulators natively (gRPC / WebRTC) instead of the browser page", isOn: settings.nativeViewer)
+                TextField("Phone-Shi repo on this Mac", text: settings.repoPath)
+                Text("The bridge runs from <repo>/.local/grpc-viewer-venv and mac-crm/Helper/phone_bridge.py. " +
+                     "Redroid containers always use the browser stream.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Phone viewer") {
                 TextField("Viewer base URL", text: settings.viewerBase)
                 Text("Open viewer launches <base>/go?udid=<serial> in your browser.")
