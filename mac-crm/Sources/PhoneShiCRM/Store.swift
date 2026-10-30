@@ -4,6 +4,7 @@ import Foundation
 @MainActor
 final class Store: ObservableObject {
     @Published var creators: [Creator] = []
+    @Published var snapAccounts: [SnapAccount] = []
     @Published var phones: [String: PhoneRecord] = [:]
     @Published var appNames: [String: String] = [:]
     @Published var settings = ConnectionSettings()
@@ -18,6 +19,7 @@ final class Store: ObservableObject {
         var appNames: [String: String]
         var settings: ConnectionSettings
         var inventory: Inventory?
+        var snapAccounts: [SnapAccount]?
     }
 
     private static var fileURL: URL {
@@ -41,6 +43,7 @@ final class Store: ObservableObject {
         appNames = doc.appNames
         settings = doc.settings
         inventory = doc.inventory
+        snapAccounts = doc.snapAccounts ?? []
     }
 
     func save() {
@@ -48,7 +51,7 @@ final class Store: ObservableObject {
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let doc = Document(creators: creators, phones: phones, appNames: appNames,
-                           settings: settings, inventory: inventory)
+                           settings: settings, inventory: inventory, snapAccounts: snapAccounts)
         if let data = try? encoder.encode(doc) {
             try? data.write(to: Self.fileURL, options: .atomic)
         }
@@ -137,7 +140,46 @@ final class Store: ObservableObject {
             record.creatorID = nil
             phones[serial] = record
         }
+        for index in snapAccounts.indices where snapAccounts[index].creatorID == creator.id {
+            snapAccounts[index].creatorID = nil
+        }
         save()
+    }
+
+    // MARK: Snap accounts
+
+    func snapAccounts(for creator: Creator) -> [SnapAccount] {
+        snapAccounts.filter { $0.creatorID == creator.id }
+    }
+
+    func snapAccounts(onPhone serial: String) -> [SnapAccount] {
+        snapAccounts.filter { $0.phoneSerial == serial }
+    }
+
+    @discardableResult
+    func addSnapAccount(username: String, creatorID: UUID? = nil) -> SnapAccount {
+        let account = SnapAccount(username: username, creatorID: creatorID)
+        snapAccounts.append(account)
+        save()
+        return account
+    }
+
+    func update(_ account: SnapAccount) {
+        guard let index = snapAccounts.firstIndex(where: { $0.id == account.id }) else { return }
+        snapAccounts[index] = account
+        save()
+    }
+
+    func delete(_ account: SnapAccount) {
+        snapAccounts.removeAll { $0.id == account.id }
+        save()
+    }
+
+    func snapCounts(_ key: (SnapAccount) -> String) -> [CountRow] {
+        var totals: [String: Int] = [:]
+        for account in snapAccounts { totals[key(account), default: 0] += 1 }
+        return totals.map { CountRow(label: $0.key, count: $0.value) }
+            .sorted { ($1.count, $0.label) < ($0.count, $1.label) }
     }
 
     // MARK: VDS actions

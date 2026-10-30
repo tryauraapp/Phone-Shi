@@ -18,8 +18,12 @@ on the Mac.
   close buttons. Selecting a row opens a side pane with the record, live
   details, installed apps, **Screen** (an adb screenshot) and **Start / Stop**
   through the phone's systemd unit or docker container.
-- **Creators**: name, Instagram, TikTok and OnlyFans handles, notes, and the
-  phones assigned to them.
+- **Creators**: name, Instagram, TikTok and OnlyFans handles, notes, the
+  phones assigned to them, and their Snap accounts (with add and assign).
+- **Snap Accounts**: Snapchat accounts with username, display name, email,
+  phone number, status (warming / active / locked / banned) and notes. Each can
+  be assigned to a creator and to the phone it lives on, from the table, the
+  detail pane, or from inside the creator's page.
 - **Apps**: every package seen on a phone with an editable friendly name and
   the phones it is installed on.
 - **VDS Settings**: host, SSH user and key, adb path on the VDS, viewer base

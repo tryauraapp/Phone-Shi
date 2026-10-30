@@ -29,6 +29,25 @@ struct PhoneRecord: Identifiable, Codable, Hashable {
     var firstSeen = Date()
 }
 
+enum SnapStatus: String, Codable, CaseIterable, Identifiable {
+    case warming, active, locked, banned
+    var id: String { rawValue }
+    var label: String { rawValue.capitalized }
+}
+
+struct SnapAccount: Identifiable, Codable, Hashable {
+    var id = UUID()
+    var username: String
+    var displayName = ""
+    var email = ""
+    var phoneNumber = ""
+    var status: SnapStatus = .warming
+    var creatorID: UUID?
+    var phoneSerial = ""
+    var notes = ""
+    var createdAt = Date()
+}
+
 struct ConnectionSettings: Codable, Hashable {
     var host = "13.140.66.200"
     var user = "root"

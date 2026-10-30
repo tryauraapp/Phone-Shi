@@ -11,7 +11,7 @@ struct CreatorsView: View {
                 List(store.creators, selection: $selection) { creator in
                     VStack(alignment: .leading) {
                         Text(creator.name).bold()
-                        Text("\(store.phones(for: creator).count) phones")
+                        Text("\(store.phones(for: creator).count) phones · \(store.snapAccounts(for: creator).count) Snap")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .tag(creator.id)
@@ -52,6 +52,14 @@ struct CreatorDetailView: View {
     @EnvironmentObject private var store: Store
     let creator: Creator
     @State private var confirmDelete = false
+    @State private var newSnap = ""
+
+    private func addSnap() {
+        let name = newSnap.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        store.addSnapAccount(username: name, creatorID: creator.id)
+        newSnap = ""
+    }
 
     private var binding: Binding<Creator> {
         Binding(get: { store.creators.first { $0.id == creator.id } ?? creator },
@@ -105,6 +113,50 @@ struct CreatorDetailView: View {
                 }
                 .padding(.horizontal)
 
+                GroupBox("Snap accounts") {
+                    let accounts = store.snapAccounts(for: creator)
+                    if accounts.isEmpty {
+                        Text("No Snap accounts assigned").foregroundStyle(.secondary)
+                    }
+                    ForEach(accounts) { account in
+                        HStack {
+                            Image(systemName: "bolt.circle.fill").foregroundStyle(.yellow)
+                            Text(account.username).bold()
+                            Text(account.status.label).foregroundStyle(.secondary)
+                            if !account.phoneSerial.isEmpty {
+                                Text("on \(store.rows.first { $0.serial == account.phoneSerial }?.displayName ?? account.phoneSerial)")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("Unassign") {
+                                var a = account; a.creatorID = nil; store.update(a)
+                            }
+                            .buttonStyle(.link)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                    HStack {
+                        let free = store.snapAccounts.filter { $0.creatorID == nil }
+                        if !free.isEmpty {
+                            Menu("Assign a Snap account") {
+                                ForEach(free) { account in
+                                    Button(account.username) {
+                                        var a = account; a.creatorID = creator.id; store.update(a)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: 220)
+                        }
+                        TextField("New Snap username", text: $newSnap)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 220)
+                            .onSubmit(addSnap)
+                        Button("Add to creator", action: addSnap)
+                            .disabled(newSnap.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+                .padding(.horizontal)
+
                 HStack {
                     Spacer()
                     Button("Delete creator", role: .destructive) { confirmDelete = true }
@@ -116,7 +168,7 @@ struct CreatorDetailView: View {
         .confirmationDialog("Delete \(creator.name)?", isPresented: $confirmDelete) {
             Button("Delete", role: .destructive) { store.delete(creator) }
         } message: {
-            Text("Their phones stay in the CRM and become unassigned.")
+            Text("Their phones and Snap accounts stay in the CRM and become unassigned.")
         }
     }
 }

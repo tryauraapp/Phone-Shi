@@ -25,6 +25,10 @@ struct DashboardView: View {
                     CountTable(title: "Android versions", rows: store.counts {
                         $0.live.map { "Android \($0.androidVersion)" } ?? "Unknown"
                     })
+                    CountTable(title: "Snap accounts per creator", rows: store.snapCounts {
+                        store.creatorName($0.creatorID)
+                    })
+                    CountTable(title: "Snap accounts per status", rows: store.snapCounts { $0.status.label })
                 }
             }
             .padding(20)
@@ -38,6 +42,7 @@ struct DashboardView: View {
             StatTile(title: "Online", value: rows.filter(\.isOnline).count, icon: "bolt.fill", tint: .green)
             StatTile(title: "Stopped", value: rows.filter { !$0.isOnline }.count, icon: "powersleep", tint: .orange)
             StatTile(title: "Creators", value: store.creators.count, icon: "person.2")
+            StatTile(title: "Snap accounts", value: store.snapAccounts.count, icon: "bolt.circle", tint: .yellow)
             StatTile(title: "Apps", value: store.appStats.count, icon: "app.badge")
             StatTile(title: "Unassigned", value: rows.filter { $0.record.creatorID == nil }.count,
                      icon: "questionmark.circle", tint: .secondary)

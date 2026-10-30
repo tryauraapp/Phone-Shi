@@ -4,6 +4,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case phones = "Phones"
     case creators = "Creators"
+    case snap = "Snap Accounts"
     case apps = "Apps"
     case settings = "VDS Settings"
 
@@ -13,6 +14,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .dashboard: return "square.grid.2x2"
         case .phones: return "iphone"
         case .creators: return "person.2"
+        case .snap: return "bolt.circle"
         case .apps: return "app.badge"
         case .settings: return "server.rack"
         }
@@ -36,6 +38,7 @@ struct ContentView: View {
                 case .dashboard: DashboardView()
                 case .phones: PhonesView()
                 case .creators: CreatorsView()
+                case .snap: SnapAccountsView()
                 case .apps: AppsView()
                 case .settings: SettingsView()
                 }
