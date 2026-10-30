@@ -32,7 +32,7 @@ struct PhonesView: View {
             .frame(minHeight: 160)
             if !openSerials.isEmpty {
                 OpenPhonesStrip(openSerials: $openSerials)
-                    .frame(minHeight: 420, idealHeight: 760)
+                    .frame(minHeight: 360, idealHeight: 720)
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search phones")

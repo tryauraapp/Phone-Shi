@@ -13,9 +13,10 @@ on the Mac.
 - **Phones**: one row per phone with status, model, creator assignment, installed
   third-party apps, the app currently on screen and a use flag
   (active / paused / retired). **Open** on a row (or in the side pane) streams
-  that phone underneath the table with full touch and keyboard control; several
-  phones can be open side by side, each with reconnect, open-in-browser and
-  close buttons. Selecting a row opens a side pane with the record, live
+  that phone underneath the table in a phone-shaped frame with a side toolbar
+  (Back, Home, Recents, volume, power, screenshot, reconnect, open in browser),
+  with full touch and keyboard control. Several phones can be open side by
+  side, and each can be popped out into its own window. Selecting a row opens a side pane with the record, live
   details, installed apps, **Screen** (an adb screenshot) and **Start / Stop**
   through the phone's systemd unit or docker container.
 - **Creators**: name, Instagram, TikTok and OnlyFans handles, notes, the
@@ -34,9 +35,11 @@ on the Mac.
 Each open phone is a `WKWebView` loading the VDS's own browser phone page,
 `<viewer base>/go?udid=<serial>`, which is the ws-scrcpy stream behind nginx
 and a trusted Let's Encrypt certificate. A user script injected into that page
-hides the device list, modal chrome and control column and scales the two
-stream canvases (video and touch layer) to fill the frame, so the card shows
-only the live phone screen. Mouse and keyboard in the web view go to the phone
+hides the device list, modal chrome and control column, removes ws-scrcpy's
+viewport-relative size clamps on the stream canvases, and scales the two
+canvases (video and touch layer) to fill the frame. The page reports the real
+video size back to the app, which sizes the frame to the phone's exact aspect
+ratio, so the card shows only the live phone screen with no letterboxing. Mouse and keyboard in the web view go to the phone
 exactly as they do in a browser. Back, Home, Recents and Power buttons in the
 card header send adb key events over SSH. The web view is kept alive while the
 phone stays open, so switching sections does not restart the stream.

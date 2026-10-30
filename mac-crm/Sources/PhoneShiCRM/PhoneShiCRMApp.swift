@@ -17,6 +17,13 @@ struct PhoneShiCRMApp: App {
                     .keyboardShortcut("r", modifiers: .command)
             }
         }
+        WindowGroup("Phone", id: "phone", for: String.self) { $serial in
+            if let serial {
+                PhoneWindowView(serial: serial)
+                    .environmentObject(store)
+            }
+        }
+        .defaultSize(width: 440, height: 860)
         Settings {
             SettingsView()
                 .environmentObject(store)

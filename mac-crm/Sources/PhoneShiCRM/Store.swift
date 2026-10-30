@@ -242,6 +242,21 @@ final class Store: ObservableObject {
         }
     }
 
+    func saveScreenshot(serial: String) async {
+        guard let image = await screenshot(serial: serial),
+              let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return }
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let desktop = FileManager.default.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+        let url = desktop.appendingPathComponent("\(serial)-\(stamp).png")
+        do {
+            try png.write(to: url)
+            lastError = nil
+        } catch {
+            lastError = "Could not save screenshot: \(error.localizedDescription)"
+        }
+    }
+
     func testConnection() async -> String {
         let client = self.client
         do {
