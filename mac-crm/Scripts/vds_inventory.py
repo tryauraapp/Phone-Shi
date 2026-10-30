@@ -90,18 +90,22 @@ def controllers():
             "serial": f"emulator-{port.group(1)}" if port else "",
         })
     if shutil.which("docker"):
-        fmt = "{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}"
-        for line in sh(["docker", "ps", "-a", "--format", fmt], timeout=20).splitlines():
-            name, image, status, ports = (line.split("|") + ["", "", "", ""])[:4]
-            if "redroid" not in image and "android" not in image:
+        # Port bindings come from inspect so a stopped phone keeps its serial.
+        fmt = "{{.Name}}|{{.Config.Image}}|{{.State.Status}}|{{json .HostConfig.PortBindings}}"
+        names = sh(["docker", "ps", "-aq"], timeout=20).split()
+        lines = sh(["docker", "inspect", "-f", fmt, *names], timeout=20).splitlines() if names else []
+        for line in lines:
+            name, image, status, bindings = (line.split("|", 3) + ["", "", "", ""])[:4]
+            name = name.lstrip("/")
+            if "redroid" not in image and "android" not in image and "phone" not in image:
                 continue
             serial = ""
-            m = re.search(r":(\d+)->5555/tcp", ports)
+            m = re.search(r'"5555/tcp":\s*\[\{[^}]*"HostPort":\s*"(\d+)"', bindings)
             if m:
                 serial = f"emulator-{int(m.group(1)) - 1}"
             found.append({
                 "kind": "docker", "name": name, "detail": f"{image} ({status})",
-                "active": status.lower().startswith("up"), "serial": serial,
+                "active": status == "running", "serial": serial,
             })
     return found
 
@@ -210,7 +214,17 @@ def host():
 
 def main():
     control = controllers()
-    by_serial = {c["serial"]: c for c in control if c["serial"]}
+    # When two controllers claim one serial (a stopped Redroid rollback container
+    # and the emulator that replaced it), the active one owns the phone.
+    by_serial = {}
+    for c in sorted(control, key=lambda c: (not c["active"], c["kind"] != "systemd")):
+        if not c["serial"]:
+            continue
+        if c["serial"] in by_serial:
+            c["serial"] = ""
+            c["detail"] += " — port owned by " + by_serial[c["serial"] if False else list(by_serial)[0]]["name"] if False else ""
+            continue
+        by_serial[c["serial"]] = c
     setup_by_serial = setups()
     phones = []
     seen = set()
